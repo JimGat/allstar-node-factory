@@ -129,9 +129,11 @@ Initial layout:
 
     inventory/
       hosts.yml
-    host_vars/
-      cloud-hub.yml
-      dvswitch-node.yml
+      group_vars/
+        all.yml
+      host_vars/
+        cloud-hub.yml
+        dvswitch-node.yml
     topology/
       permanent-links.yml
     vault/

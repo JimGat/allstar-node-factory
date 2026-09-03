@@ -6,7 +6,7 @@
 
 **Architecture:** The public repository contains idempotent Ansible roles, fictional fixtures, CI, documentation, and an operations skill. A sibling private repository contains real node inventory and an Ansible Vault file; local Ansible joins both repositories at runtime and deploys over SSH. Production service activation is a separate cutover flag so a fully configured green node cannot duplicate the old node's AllStarLink, EchoLink, or Broadcastify identities before the operator gate.
 
-**Tech Stack:** Ansible Core, Jinja2, community.general, Python 3, pytest, pytest-testinfra, ansible-lint, yamllint, GitHub Actions, Debian 13, ASL3/Asterisk 20, UFW, Apache/PHP, systemd.
+**Tech Stack:** Ansible Core 2.20, Jinja2, community.general, Python 3.12+, pytest, pytest-testinfra, ansible-lint, yamllint, Gitleaks, GitHub Actions, Debian 13, current repository-supplied ASL3/Asterisk, UFW, Apache/PHP, systemd.
 
 ## Global Constraints
 
@@ -19,7 +19,7 @@
 - Use HTTP registration in `/etc/asterisk/rpt_http_registrations.conf`; do not also configure IAX registration.[2]
 - Keep all production credentials, addresses, topology, backups, and private keys out of the public repository.
 - Store the sole production Vault password outside Git at `/home/jarvis/.config/allstar-node-factory/vault-production.key`, mode `0600`, with a recovery copy in Jim's password manager.
-- Secret-bearing tasks use `no_log: true`; generated secret files declare explicit owner, group, and restrictive mode.
+- Secret-bearing tasks use both `no_log: true` and `diff: false`; generated secret files declare explicit owner, group, and restrictive mode.
 - The public framework never provisions or modifies Vultr through an API in this release.
 - The separate DVSwitch node is not rebuilt by this plan.
 - The preferred permanent-link initiator is the DVSwitch node; inventory must explicitly declare `external` or `local`, and the cloud hub must not create a second initiating link.
@@ -35,12 +35,16 @@
 
 - `.github/workflows/ci.yml` — offline lint, unit, render, and secret-scan gates.
 - `.gitignore` — excludes Python state, local inventories, Vault keys, backups, reports, and decrypted files.
+- `.python-version` — reviewed controller Python version.
+- `.ansible-lint` — production lint profile and local exclusions.
+- `.pre-commit-config.yaml` — pinned local policy checks, including Gitleaks.
+- `.gitleaks.toml` — Vault-aware leak-detection policy.
 - `.yamllint.yml` — YAML conventions shared by local and CI checks.
 - `LICENSE` — MIT license for reusable automation and documentation.
 - `CHANGELOG.md` — release history.
 - `ansible.cfg` — repository-local Ansible defaults without production inventory paths.
 - `requirements.yml` — collection dependency on `community.general`.
-- `requirements-dev.txt` — bounded development/test dependencies.
+- `requirements-dev.txt` — exact reviewed development/test dependencies.
 - `playbooks/vultr-hub.yml` — staged configure/activate deployment entry point.
 - `playbooks/validate.yml` — read-only health and acceptance evidence collection.
 - `playbooks/backup.yml` — encrypted-content-aware target-side configuration backup.
@@ -57,6 +61,7 @@
 - `tests/unit/` — static contract and renderer tests.
 - `tests/integration/` — disposable Debian role tests that do not register or stream.
 - `scripts/check_no_secrets.py` — repository-specific leak detector.
+- `scripts/check_framework_pin.py` — refuses deployment from a dirty or unlocked public framework checkout.
 - `scripts/validate_inventory.py` — public/private variable-contract validator.
 - `docs/migration/hamvoip-to-asl3.md` — legacy evidence capture and translation matrix.
 - `docs/operations/vultr-cutover.md` — blue/green cutover and rollback commands.
@@ -69,8 +74,9 @@
 ### Private repository
 
 - `inventory/hosts.yml` — real SSH target aliases and connection variables.
-- `host_vars/cloud-hub.yml` — real non-secret desired state for the new hub.
-- `host_vars/dvswitch-node.yml` — real peer identity and whether it is managed externally.
+- `inventory/group_vars/all.yml` — estate-wide non-secret defaults.
+- `inventory/host_vars/cloud-hub.yml` — real non-secret desired state for the new hub.
+- `inventory/host_vars/dvswitch-node.yml` — real peer identity and whether it is managed externally.
 - `topology/permanent-links.yml` — authoritative link ownership declaration.
 - `vault/production.yml` — Ansible-Vault-encrypted credentials only.
 - `reports/redacted/.gitkeep` — destination for deliberately redacted acceptance summaries.
@@ -83,6 +89,8 @@
 
 **Files:**
 - Create: `.gitignore`
+- Create: `.python-version`
+- Create: `.ansible-lint`
 - Create: `.yamllint.yml`
 - Create: `LICENSE`
 - Create: `CHANGELOG.md`
@@ -117,6 +125,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 REQUIRED = {
     ".gitignore",
+    ".python-version",
+    ".ansible-lint",
     ".yamllint.yml",
     "LICENSE",
     "CHANGELOG.md",
@@ -159,6 +169,7 @@ retry_files_enabled = False
 interpreter_python = auto_silent
 deprecation_warnings = True
 stdout_callback = default
+display_args_to_stdout = False
 
 [privilege_escalation]
 become = True
@@ -171,17 +182,18 @@ Create `requirements.yml`:
 ---
 collections:
   - name: community.general
-    version: ">=10.0.0,<12.0.0"
+    version: "13.3.0"
 ```
 
 Create `requirements-dev.txt`:
 
 ```text
-ansible-core>=2.18.0,<2.21.0
-ansible-lint>=25.1.0,<26.0.0
-pytest>=8.0.0,<9.0.0
-pytest-testinfra>=10.0.0,<11.0.0
-yamllint>=1.35.0,<2.0.0
+ansible-core==2.20.8
+ansible-lint==26.8.0
+yamllint==1.38.0
+pytest==9.1.1
+pytest-testinfra==10.2.2
+pre-commit==4.6.2
 ```
 
 Create `.yamllint.yml`:
@@ -194,6 +206,16 @@ rules:
     max: 120
   truthy:
     allowed-values: ["true", "false"]
+```
+
+Create `.python-version` containing `3.13`, and `.ansible-lint`:
+
+```yaml
+---
+profile: production
+exclude_paths:
+  - .venv/
+  - .cache/
 ```
 
 Create `.gitignore`:
@@ -236,7 +258,7 @@ Expected: all commands exit `0`.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add .gitignore .yamllint.yml LICENSE CHANGELOG.md README.md ansible.cfg requirements.yml requirements-dev.txt tests/unit/test_repository_contract.py
+git add .gitignore .python-version .ansible-lint .yamllint.yml LICENSE CHANGELOG.md README.md ansible.cfg requirements.yml requirements-dev.txt tests/unit/test_repository_contract.py
 git commit -m "chore: establish Ansible repository baseline"
 ```
 
@@ -246,16 +268,18 @@ git commit -m "chore: establish Ansible repository baseline"
 
 **Files:**
 - Create: `scripts/validate_inventory.py`
+- Create: `scripts/check_framework_pin.py`
 - Create: `tests/fixtures/inventory/valid.yml`
 - Create: `tests/fixtures/inventory/missing-secret.yml`
 - Create: `tests/unit/test_validate_inventory.py`
+- Create: `tests/unit/test_check_framework_pin.py`
 - Create: `inventories/example/hosts.yml`
 - Create: `inventories/example/group_vars/all.yml`
 - Create: `inventories/example/host_vars/example-cloud-hub.yml`
 
 **Interfaces:**
-- Consumes: YAML dictionaries loaded from public examples or the private inventory repository.
-- Produces: `validate(data: dict) -> list[str]`, with an empty list meaning that required variables and safety gates are present.
+- Consumes: YAML dictionaries loaded from public examples or the private inventory repository, plus private `framework.lock.yml` metadata.
+- Produces: `validate(data: dict) -> list[str]` for inventory and `validate_pin(lock: dict, head: str, dirty: bool) -> list[str]` for framework identity; an empty list means the relevant contract is satisfied.
 
 - [ ] **Step 1: Write failing validator tests**
 
@@ -294,6 +318,8 @@ def test_activation_requires_explicit_boolean() -> None:
     assert "production_services_enabled must be true or false" in MODULE.validate(data)
 ```
 
+Create `tests/unit/test_check_framework_pin.py` with cases proving that a clean checkout at the exact 40-character SHA passes, while a dirty tree, short SHA, or mismatched HEAD fails without printing repository contents.
+
 - [ ] **Step 2: Add complete fictional fixtures**
 
 `tests/fixtures/inventory/valid.yml` must contain:
@@ -331,9 +357,10 @@ Run:
 
 ```bash
 python3 -m pytest tests/unit/test_validate_inventory.py -q
+python3 -m pytest tests/unit/test_check_framework_pin.py -q
 ```
 
-Expected: import failure because `scripts/validate_inventory.py` does not exist.
+Expected: import failures because both validator scripts do not exist.
 
 - [ ] **Step 4: Implement the validator**
 
@@ -358,13 +385,15 @@ FEATURE_SECRETS = {
 VALID_INITIATORS = {"external", "local"}
 ```
 
-It must reject non-numeric 4-6 digit ASL node numbers, non-integer ports outside `1..65535`, empty management CIDRs, non-boolean `production_services_enabled`, permanent links without a peer, and initiators outside `external|local`. CLI usage is:
+It must reject non-numeric 4-6 digit ASL node numbers, non-integer ports outside `1..65535`, empty management CIDRs, non-boolean `production_services_enabled`, permanent links without a peer, initiators outside `external|local`, and an enabled AllScan password outside its upstream 6-16 character range. CLI usage is:
 
 ```bash
 python3 scripts/validate_inventory.py tests/fixtures/inventory/valid.yml
 ```
 
 It prints one error per line to stderr and exits `1`, or prints `inventory contract: OK` and exits `0`.
+
+Implement `scripts/check_framework_pin.py` so its CLI accepts `--framework` and `--lock`, reads `repository`, `ref`, and `commit`, requires a full lowercase 40-character hexadecimal commit, runs `git rev-parse HEAD` plus `git status --porcelain`, and exits nonzero if HEAD differs or the tree is dirty. It prints only the expected/actual SHAs and cleanliness state.
 
 - [ ] **Step 5: Create the fictional public inventory**
 
@@ -374,6 +403,7 @@ Use `example-cloud-hub`, `ansible_host: 192.0.2.10`, callsign `N0CALL`, nodes `1
 
 ```bash
 python3 -m pytest tests/unit/test_validate_inventory.py -q
+python3 -m pytest tests/unit/test_check_framework_pin.py -q
 python3 scripts/validate_inventory.py tests/fixtures/inventory/valid.yml
 python3 scripts/validate_inventory.py tests/fixtures/inventory/missing-secret.yml && exit 1 || test $? -eq 1
 ```
@@ -383,7 +413,7 @@ Expected: tests pass, valid fixture exits `0`, invalid fixture exits `1`.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add scripts/validate_inventory.py tests/fixtures tests/unit/test_validate_inventory.py inventories/example
+git add scripts/validate_inventory.py scripts/check_framework_pin.py tests/fixtures tests/unit/test_validate_inventory.py tests/unit/test_check_framework_pin.py inventories/example
 git commit -m "feat: define Vultr hub inventory contract"
 ```
 
@@ -404,7 +434,7 @@ git commit -m "feat: define Vultr hub inventory contract"
 - Consumes: `asl_node_number`, `asl_callsign`, `asl_iax_port`, `asl_rxchannel`, `vault_asl_node_password`, `vault_ami_secret`, and `production_services_enabled`.
 - Produces: installed `asl3`, a radioless node stanza, HTTP registration, a loopback-only AMI account, and handler `Restart asterisk`.
 
-ASL3 supports Debian 13 and installs through its repository package followed by `apt install asl3`.[1] Node-specific `rpt.conf` settings inherit from the ASL3 `[node-main]` template, so the managed fragment stays deliberately small.[10]
+ASL3 supports Debian 13 and installs through its repository package followed by `apt install asl3`.[1][13] Node-specific `rpt.conf` settings inherit from the ASL3 `[node-main]` template, so the managed fragment stays deliberately small.[10]
 
 - [ ] **Step 1: Write failing template tests**
 
@@ -435,11 +465,12 @@ Expected: failure because the role templates do not exist.
 
 1. assert `ansible_distribution == 'Debian'`, major version `13`, architecture `x86_64|amd64`, `ansible_become` works, and every Task 2 required variable exists;
 2. install `ca-certificates`, `curl`, `gnupg`, `sudo`, `ufw`, and `python3`;
-3. download `https://repo.allstarlink.org/public/asl-apt-repos.deb13_all.deb` to `/var/cache/apt/archives/asl-apt-repos.deb13_all.deb`;
+3. download `https://repo.allstarlink.org/public/asl-apt-repos.deb13_all.deb` to `/var/cache/apt/archives/asl-apt-repos.deb13_all.deb` with the reviewed SHA-256 `22ae4334fc8780f105c33c0017ff4e2663198d3b52d977db48949a5a732889d5`[16];
 4. install that `.deb` with `ansible.builtin.apt: deb=...`;
 5. update the apt cache and install `asl3`;
 6. create `/etc/asterisk/node-factory` owned by `root:asterisk` mode `0750`;
-7. back up `/etc/asterisk` to the backup role before replacing any registration file if `node_factory_require_prechange_backup` is true.
+7. assert the package defaults require `bridge_softmix.so`, `chan_bridge_media.so`, and `chan_iax2.so`, load `res_timing_timerfd.so`, and do not load DAHDI for the `Local/pseudo` hub;
+8. back up `/etc/asterisk` to the backup role before replacing any registration file if `node_factory_require_prechange_backup` is true.
 
 Use `changed_when` only when command output cannot express state; do not mark read-only probes changed.
 
@@ -451,7 +482,9 @@ Use `changed_when` only when command output cannot express state; do not mark re
 ; Managed by allstar-node-factory. Local edits will be replaced.
 [{{ asl_node_number }}](node-main)
 rxchannel = {{ asl_rxchannel }}
+duplex = 2
 idrecording = |i{{ asl_callsign }}
+statpost_url = http://stats.allstarlink.org/uhandler
 nodes = node-factory-nodes
 {% if permanent_link_enabled | bool and permanent_link_initiator == 'local' %}
 startup_macro = *813{{ permanent_link_peer_node }}
@@ -471,13 +504,14 @@ Add one managed `#include /etc/asterisk/node-factory/rpt-node-factory.conf` line
 `rpt_http_registrations.conf.j2` contains:
 
 ```ini
-[General]
+[general]
+register_interval = 180
 
 [registrations]
 register => {{ asl_node_number }}:{{ vault_asl_node_password }}@register.allstarlink.org
 ```
 
-ASL3 uses this file by default and warns against simultaneous HTTP and IAX registration.[2] Template it mode `0640`, owner `root`, group `asterisk`, with `no_log: true`. Assert that active `register =>` lines are absent from `/etc/asterisk/iax.conf`.
+ASL3 uses this file by default and warns against simultaneous HTTP and IAX registration.[2] Template it mode `0640`, owner `root`, group `asterisk`, with `no_log: true` and `diff: false`. Assert that active `register =>` lines are absent from `/etc/asterisk/iax.conf`; use a section-aware edit to set its `[general]` `bindport` to `asl_iax_port`, preserving the packaged `[radio]` peer and codec policy.
 
 `manager-node-factory.conf.j2` contains:
 
@@ -487,10 +521,10 @@ secret = {{ vault_ami_secret }}
 deny = 0.0.0.0/0.0.0.0
 permit = 127.0.0.1/255.255.255.255
 read = all
-write = command
+write = all
 ```
 
-Insert one `#include /etc/asterisk/node-factory/manager-node-factory.conf` line into `/etc/asterisk/manager.conf`; template the fragment mode `0640`, owner `root`, group `asterisk`, with `no_log: true`.
+Insert one `#include /etc/asterisk/node-factory/manager-node-factory.conf` line into `/etc/asterisk/manager.conf`; template the fragment mode `0640`, owner `root`, group `asterisk`, with `no_log: true` and `diff: false`. Assert the packaged `[general]` section binds AMI to `127.0.0.1` before enabling either dashboard.
 
 - [ ] **Step 6: Add safe handlers and activation behavior**
 
@@ -608,7 +642,7 @@ python3 -m pytest tests/unit/test_echolink_template.py -q
 
 - [ ] **Step 3: Implement protected configuration rendering**
 
-The template must render `[el0]` with `call`, `pwd`, `name`, `qth`, `email`, `node`, `astnode`, `lat`, `lon`, `freq`, `tone`, `power`, `height`, `gain`, and `dir`. Task defaults use neutral numeric values and require identity fields when enabled. Write it `root:asterisk`, mode `0640`, `no_log: true`.
+The template must render `[el0]` with `call`, `pwd`, `name`, `qth`, `email`, `node`, `astnode`, `context = radio-secure`, `lat`, `lon`, `freq`, `tone`, `power`, `height`, `gain`, and `dir`. Task defaults use neutral numeric values and require identity fields when enabled. Write it `root:asterisk`, mode `0640`, with `no_log: true` and `diff: false`.
 
 - [ ] **Step 4: Implement module activation and deferred service start**
 
@@ -677,7 +711,7 @@ Collect `dpkg-query -W -f='${Version}' asl3`, assert it is not older than `3.18.
 
 - [ ] **Step 4: Render protected stream configuration**
 
-Create `/etc/asterisk/broadcastify`, render `NODE.conf` mode `0640`, owner `root`, group `asterisk`, and mark the task `no_log: true`. Add this line to the managed node stanza when enabled:
+Create `/etc/asterisk/broadcastify` mode `0750`, render `NODE.conf` mode `0640`, owner `root`, group `asterisk`, and mark the task with `no_log: true` and `diff: false`. Treat the file as a sourced shell environment: render every external string through Ansible's `quote` filter and reject newline or NUL characters before rendering. Add this line to the managed node stanza when enabled:
 
 ```ini
 outstreamcmd = /usr/libexec/asl3/rpt_audio_writer,/var/lib/asterisk/{{ asl_node_number }}.fifo
@@ -705,6 +739,8 @@ git commit -m "feat: add modern Broadcastify streaming role"
 - Create: `roles/allmon3/handlers/main.yml`
 - Create: `roles/allmon3/tasks/main.yml`
 - Create: `roles/allmon3/templates/allmon3.ini.j2`
+- Create: `roles/allmon3/templates/web.ini.j2`
+- Create: `roles/allmon3/templates/user-restrictions.j2`
 - Create: `tests/unit/test_allmon3_template.py`
 
 **Interfaces:**
@@ -725,6 +761,8 @@ user = node-factory
 pass = fixture-only-not-a-real-secret
 ```
 
+Also assert `web.ini` binds the WebSocket listeners to `127.0.0.1` and the restriction file limits the configured user to the local node.
+
 - [ ] **Step 2: Run and confirm failure**
 
 ```bash
@@ -733,15 +771,17 @@ python3 -m pytest tests/unit/test_allmon3_template.py -q
 
 - [ ] **Step 3: Install and configure Allmon3**
 
-Install `allmon3` and `python3-pexpect`. Render `/etc/allmon3/allmon3.ini` owner `root:allmon3`, mode `0640`, `no_log: true`. Keep AMI on loopback only.
+Install `allmon3`, `apache2`, and `python3-pexpect`. Render `/etc/allmon3/allmon3.ini` owner `allmon3:allmon3`, mode `0660`, with `no_log: true` and `diff: false`. Render `/etc/allmon3/web.ini` with `HTTP_PORT = 16080`, `WS_PORT_START = 16700`, and `WS_BIND_ADDR = 127.0.0.1`. Keep AMI and all Allmon3 backend listeners on loopback only; expose only the Apache frontend.
 
 - [ ] **Step 4: Manage the Allmon3 login idempotently**
 
 Compute a controller-side SHA-256 digest of `allmon3_username + NUL + vault_allmon3_password`. Compare it to `/var/lib/allstar-node-factory/allmon3-user.sha256`. When absent or changed, run `community.general.expect` against `allmon3-passwd USER`, answering the password and confirmation prompts, with `no_log: true`; then write the digest sentinel mode `0600`. Notify `Reload allmon3`.
 
+Render `/etc/allmon3/user-restrictions` as `allmon3_username | asl_node_number`, owner `allmon3:allmon3`, mode `0660`; a missing user entry otherwise grants that user command access to every configured node.[12]
+
 - [ ] **Step 5: Enable and validate**
 
-Enable/start `allmon3` when its feature flag is true. Use `ansible.builtin.uri` against `http://127.0.0.1/allmon3/` and accept only `200` or an expected authenticated redirect. Assert TCP 5038 is not listening on a non-loopback address.
+Enable/start `allmon3` and Apache when its feature flag is true. Run `apache2ctl configtest`, query `http://127.0.0.1:16080/node/listall`, and use `ansible.builtin.uri` against `http://127.0.0.1/allmon3/`; accept only `200` or an expected authenticated redirect. Assert TCP 5038, 16080, 16700, and 16701 are not listening on non-loopback addresses.
 
 - [ ] **Step 6: Test and commit**
 
@@ -760,6 +800,7 @@ git commit -m "feat: add authenticated Allmon3 role"
 - Create: `roles/allscan/defaults/main.yml`
 - Create: `roles/allscan/handlers/main.yml`
 - Create: `roles/allscan/tasks/main.yml`
+- Create: `roles/allscan/templates/allscan-security.conf.j2`
 - Create: `tests/unit/test_allscan_contract.py`
 
 **Interfaces:**
@@ -767,6 +808,8 @@ git commit -m "feat: add authenticated Allmon3 role"
 - Produces: pinned application files at `/var/www/html/allscan`, persistent `/etc/allscan`, and an explicit first-run-admin acceptance gate.
 
 The upstream README supports ASL3 and lists PHP, SQLite, curl, unzip, Avahi, and `asl3-tts` dependencies.[8] Its installer follows the moving `main` branch and asks interactive questions, including an optional OS upgrade, so automation must not execute it unattended.[9]
+
+AllScan remains a third-party project outside the AllStarLink project's support boundary.[11] Upstream does not publish an explicit Debian 13/PHP 8.4 compatibility matrix.[8][9] Keep it isolated as an optional role, prove it in the disposable Debian 13 integration test and the staged Vultr build, and never let an AllScan failure undo or destabilize the core ASL3 node.
 
 - [ ] **Step 1: Write the failing contract test**
 
@@ -788,13 +831,15 @@ python3 -m pytest tests/unit/test_allscan_contract.py -q
 
 - [ ] **Step 3: Implement pinned deployment**
 
-Set `allscan_commit` to the reviewed commit `0309f2ff8fc5d2baf1c1df1afc13acb59781cd97`. Install `apache2`, `php`, `php-sqlite3`, `php-curl`, `unzip`, `avahi-daemon`, `asl3-tts`, and `asl3-update-nodelist`. Download the commit tarball from:
+Set `allscan_commit` to the reviewed commit `0309f2ff8fc5d2baf1c1df1afc13acb59781cd97` and `allscan_archive_sha256` to `bad4e2992ba8778e75e6c8cf4df3d1f2f80b23a6511dc7a73edefa8f220c7840`.[15][17] Install `apache2`, `libapache2-mod-php`, `php`, `php-sqlite3`, `php-curl`, and `asl3-update-nodelist`. Do not install or enable Avahi or optional AllScan DTMF/TTS helpers on the VPS. Download the commit tarball from:
 
 ```text
 https://github.com/davidgsd/AllScan/archive/0309f2ff8fc5d2baf1c1df1afc13acb59781cd97.tar.gz
 ```
 
-Unpack to a temporary directory, synchronize application code into `/var/www/html/allscan` without deleting user `.ini` files, and set directories `root:www-data 0775`, files `root:www-data 0664`. Create `/etc/allscan` as `root:www-data 0770`; never replace `allscan.db` if present.
+Verify the archive against `allscan_archive_sha256`, unpack to a temporary directory, synchronize application code into `/var/www/html/allscan` without deleting user `.ini` files, and set directories `root:www-data 0775`, files `root:www-data 0664`. Create `/etc/allscan` as `root:www-data 0770`; never replace `allscan.db` if present, and tighten it to `root:www-data 0640` after creation. Explicitly enable and start `asl3-update-astdb.timer`, run its oneshot service once, and verify `/var/www/html/allscan/astdb.txt` resolves to a non-empty `/var/lib/asterisk/astdb.txt`.
+
+Render and enable an Apache configuration that denies all HTTP access to `/allscan/_tools/` and denies direct download of `.ini`, `.db`, and `.bak` files. Run `apache2ctl configtest` before reloading Apache.
 
 - [ ] **Step 4: Implement first-run and health gates**
 
@@ -804,7 +849,7 @@ Use `uri` against `http://127.0.0.1/allscan/`. Record one of:
 - `INIT_REQUIRED` — HTTP success but `/etc/allscan/allscan.db` is absent;
 - `FAIL` — no expected local HTTP response.
 
-Do not write directly to the undocumented SQLite schema. The cutover runbook requires Jim to create the first admin account over the protected management path and then rerun validation. Public unauthenticated access remains the upstream read-only default until Jim changes it.
+Do not write directly to the undocumented SQLite schema. The cutover runbook requires Jim to create the first Superuser over the protected management path, set **Public Permission** to **None**, and then rerun validation. Keep `web_public_enabled: false` until those steps pass; the upstream default is read-only but still reveals live node and favorites data.
 
 - [ ] **Step 5: Test and commit**
 
@@ -898,7 +943,7 @@ python3 -m pytest tests/unit/test_validation_report.py -q
 
 - [ ] **Step 3: Implement secure target-side backups**
 
-Create `/var/backups/allstar-node-factory` mode `0700`. Use `community.general.archive` to create a timestamped mode-`0600` archive containing only existing paths from:
+When `asl-backup-menu` is installed, run its noninteractive `backup-local` action and verify that it creates a readable `ASL_*.tgz` in `/var/asl-backups`.[18] Then create `/var/backups/allstar-node-factory` mode `0700`. Use `community.general.archive` to create a supplemental timestamped mode-`0600` archive containing only existing paths from:
 
 ```yaml
 backup_paths:
@@ -917,6 +962,8 @@ Collect and normalize:
 
 - supported OS/architecture;
 - installed ASL3 version;
+- `asl-check-install` completes without a fatal finding;
+- `asl-node-auth-check` output contains no `Error:` lines when production identity is active;
 - Asterisk enabled/active and `asterisk -rx 'core show uptime'` success;
 - expected IAX/EchoLink/web sockets;
 - no non-loopback TCP 5038 listener;
@@ -1082,6 +1129,8 @@ The test must verify every playbook command contains both the private inventory 
 required = (
     "--limit cloud-hub",
     "--vault-id production@/home/jarvis/.config/allstar-node-factory/vault-production.key",
+    "--extra-vars @../allstar-node-inventory/topology/permanent-links.yml",
+    "--extra-vars @../allstar-node-inventory/vault/production.yml",
     "playbooks/vultr-hub.yml",
     "playbooks/validate.yml",
     "playbooks/backup.yml",
@@ -1109,7 +1158,9 @@ ansible-playbook \
   -i ../allstar-node-inventory/inventory/hosts.yml \
   playbooks/vultr-hub.yml \
   --limit cloud-hub \
-  --vault-id production@/home/jarvis/.config/allstar-node-factory/vault-production.key
+  --vault-id production@/home/jarvis/.config/allstar-node-factory/vault-production.key \
+  --extra-vars @../allstar-node-inventory/topology/permanent-links.yml \
+  --extra-vars @../allstar-node-inventory/vault/production.yml
 ```
 
 Staging sets `production_services_enabled: false`; cutover changes only that variable to `true` after the old Asterisk, EchoLink, and Broadcastify processes are stopped. Rollback reverses the order: stop the new identity-bearing services, power on the old server, verify registrations/feed/link, and leave the new server available for diagnosis.
@@ -1150,6 +1201,8 @@ git commit -m "docs: add Vultr migration and operations runbooks"
 **Files:**
 - Create: `scripts/check_no_secrets.py`
 - Create: `tests/unit/test_check_no_secrets.py`
+- Create: `.pre-commit-config.yaml`
+- Create: `.gitleaks.toml`
 - Create: `.github/workflows/ci.yml`
 
 **Interfaces:**
@@ -1181,10 +1234,13 @@ Walk tracked-text extensions, skip `.git`, `.venv`, and the approved design/plan
 
 - [ ] **Step 4: Add CI**
 
-The workflow triggers on pull requests and pushes to non-production branches. It checks out code, sets up Python, installs `requirements-dev.txt` and `requirements.yml`, then runs:
+Pin the Gitleaks pre-commit hook to `v8.30.1`. Configure `.gitleaks.toml` to allow proper Ansible Vault ciphertext while continuing to reject plaintext passwords, private keys, tokens, and credentials. Retain the purpose-built Python scanner as a second policy layer for project-specific forbidden topology and inventory patterns.
+
+The workflow triggers on pull requests and branch pushes. It checks out code, sets up Python 3.13, installs `requirements-dev.txt` and `requirements.yml`, then runs:
 
 ```bash
 python3 scripts/check_no_secrets.py .
+pre-commit run --all-files
 yamllint .
 ansible-lint
 python3 -m pytest tests/unit -q
@@ -1197,6 +1253,7 @@ Do not add deployment credentials, SSH, live integration tests, or production en
 
 ```bash
 python3 scripts/check_no_secrets.py .
+pre-commit run --all-files
 yamllint .
 ansible-lint
 python3 -m pytest tests/unit -q
@@ -1210,7 +1267,7 @@ Expected: all available gates pass; integration may report `SKIPPED` only when D
 - [ ] **Step 6: Commit**
 
 ```bash
-git add scripts/check_no_secrets.py tests/unit/test_check_no_secrets.py .github/workflows/ci.yml
+git add scripts/check_no_secrets.py tests/unit/test_check_no_secrets.py .pre-commit-config.yaml .gitleaks.toml .github/workflows/ci.yml
 git commit -m "ci: enforce Ansible and secret-safety gates"
 ```
 
@@ -1220,7 +1277,8 @@ git commit -m "ci: enforce Ansible and secret-safety gates"
 
 **Files:**
 - Modify: local Git remote configuration.
-- Create in private repository: `.gitignore`, `README.md`, `inventory/hosts.yml`, `host_vars/`, `topology/`, `vault/`, `reports/redacted/.gitkeep`, `docs/`.
+- Create in private repository: `.gitignore`, `README.md`, `inventory/hosts.yml`, `inventory/group_vars/`, `inventory/host_vars/`, `topology/`, `vault/`, `reports/redacted/`, and `docs/`
+- Create in private repository: `framework.lock.yml`
 
 **Interfaces:**
 - Consumes: verified GitHub authentication and the tested public branch.
@@ -1261,6 +1319,16 @@ git log --oneline --decorate --graph --all -n 30
 
 Create `/home/jarvis/allstar-node-inventory`, initialize `main`, add a private-repo README and `.gitignore` that excludes plaintext vault files, keys, raw backups, and unredacted reports. Add directories named in the file map. Do not add actual secrets yet. Commit, then:
 
+Create `framework.lock.yml` with exactly these keys:
+
+```yaml
+repository: git@github.com:JimGat/allstar-node-factory.git
+ref: main
+commit: 8959fafbb94ae93fd9acc922b32bdb97eb74ba02
+```
+
+Use the full current public `HEAD` returned by `git rev-parse HEAD`; the shown commit is the plan baseline and must be replaced if implementation commits advance the reviewed framework before deployment. The lock is non-secret and is updated only after review.
+
 ```bash
 gh repo create JimGat/allstar-node-inventory --private --source=. --remote=origin --push
 ```
@@ -1294,8 +1362,8 @@ Expected: public/private visibility is correct and remote heads match local comm
 
 **Files:**
 - Create in private repository: `inventory/hosts.yml`
-- Create in private repository: `host_vars/cloud-hub.yml`
-- Create in private repository: `host_vars/dvswitch-node.yml`
+- Create in private repository: `inventory/host_vars/cloud-hub.yml`
+- Create in private repository: `inventory/host_vars/dvswitch-node.yml`
 - Create in private repository: `topology/permanent-links.yml`
 - Create in private repository: `vault/production.yml`
 - Create in private repository: `docs/estate.md`
@@ -1340,7 +1408,7 @@ Record why in `topology/permanent-links.yml`. Completion criterion: there is one
 
 - [ ] **Step 4: Populate non-secret desired state**
 
-Write real node numbers, callsign, ports, SSH alias, feature flags, metadata, and topology to `inventory/`, `host_vars/`, and `topology/`. Keep `production_services_enabled: false` for staging. Run the public validator against the assembled variable set and correct every error.
+Write real node numbers, callsign, ports, SSH alias, feature flags, metadata, and topology to `inventory/group_vars/`, `inventory/host_vars/`, and `topology/`. Keep `production_services_enabled: false` for staging. Run the public validator against the assembled variable set and correct every error.
 
 - [ ] **Step 5: Create the encrypted vault interactively**
 
@@ -1356,7 +1424,9 @@ The decrypted YAML contains exactly the keys `vault_asl_node_password`,
 `vault_echolink_password`, `vault_broadcastify_password`, `vault_ami_secret`,
 `vault_allmon3_password`, and `vault_allscan_password`. Assign authorized
 existing credentials to the first three and newly generated high-entropy
-values to the final three. Values
+values to `vault_ami_secret` and `vault_allmon3_password`. Generate
+`vault_allscan_password` as an independent random value exactly 16 characters
+long because upstream AllScan accepts only 6-16 characters.[14] Values
 are entered only in the editor opened by `ansible-vault create`, never in chat
 or a shell argument. Verify ciphertext without displaying plaintext:
 
@@ -1372,7 +1442,7 @@ Expected: first line starts `$ANSIBLE_VAULT;1.2;AES256;production`; view exits `
 Run the public secret scanner with private-mode rules that allow Vault ciphertext but reject plaintext keys and private keys. Review `git diff --cached` manually. Commit only desired state and encrypted ciphertext:
 
 ```bash
-git add inventory host_vars topology vault/production.yml reports/redacted/.gitkeep docs .gitignore README.md
+git add inventory topology vault/production.yml framework.lock.yml reports/redacted/.gitkeep docs .gitignore README.md
 git commit -m "chore: add encrypted production node inventory"
 git push origin main
 ```
@@ -1384,7 +1454,7 @@ Read back the private GitHub repository file list and visibility before claiming
 ### Task 17: Stage the New Vultr Hub Without Activating Identities
 
 **Files:**
-- Modify in private repository: `host_vars/cloud-hub.yml`
+- Modify in private repository: `inventory/host_vars/cloud-hub.yml`
 - Create outside Git: preflight and staging execution logs with secrets redacted.
 
 **Interfaces:**
@@ -1399,7 +1469,15 @@ Completion criterion: SSH works with the intended non-root sudo user, automated 
 
 - [ ] **Step 2: Pin the reviewed public commit in private metadata**
 
-Record the exact public commit SHA in `docs/estate.md`. Check out that SHA or its approved release tag locally before deployment. Completion criterion: `git rev-parse HEAD` equals the recorded SHA.
+Write the exact public commit SHA, repository URL, and reviewed branch or release tag to `framework.lock.yml`, and record the same SHA in `docs/estate.md`. Check out that SHA, require a clean tree, and run:
+
+```bash
+python3 scripts/check_framework_pin.py \
+  --framework /home/jarvis/allstar-node-factory \
+  --lock /home/jarvis/allstar-node-inventory/framework.lock.yml
+```
+
+Completion criterion: the checker exits `0` and `git rev-parse HEAD` equals the locked full SHA.
 
 - [ ] **Step 3: Run check mode and inspect the diff**
 
@@ -1409,6 +1487,8 @@ ansible-playbook \
   playbooks/vultr-hub.yml \
   --limit cloud-hub \
   --vault-id production@/home/jarvis/.config/allstar-node-factory/vault-production.key \
+  --extra-vars @../allstar-node-inventory/topology/permanent-links.yml \
+  --extra-vars @../allstar-node-inventory/vault/production.yml \
   --check --diff
 ```
 
@@ -1422,15 +1502,15 @@ Completion criterion: ASL3, web apps, configs, firewall, and backups are present
 
 - [ ] **Step 5: Initialize AllScan over the protected management path**
 
-Open the local/protected AllScan URL, create the first admin account using `vault_allscan_password`, and set public access according to the approved policy. Do not expose the site publicly merely to complete initialization.
+Open the local/protected AllScan URL, create the first admin account using `vault_allscan_password`, and set **Public Permission** to **None**. Do not expose the site publicly merely to complete initialization.
 
 Completion criterion: `/etc/allscan/allscan.db` exists, admin login works, and validation changes AllScan from `INIT_REQUIRED` to `PASS`.
 
 - [ ] **Step 6: Run staged validation and backup**
 
 ```bash
-ansible-playbook -i ../allstar-node-inventory/inventory/hosts.yml playbooks/validate.yml --limit cloud-hub --vault-id production@/home/jarvis/.config/allstar-node-factory/vault-production.key
-ansible-playbook -i ../allstar-node-inventory/inventory/hosts.yml playbooks/backup.yml --limit cloud-hub --vault-id production@/home/jarvis/.config/allstar-node-factory/vault-production.key
+ansible-playbook -i ../allstar-node-inventory/inventory/hosts.yml playbooks/validate.yml --limit cloud-hub --vault-id production@/home/jarvis/.config/allstar-node-factory/vault-production.key --extra-vars @../allstar-node-inventory/topology/permanent-links.yml --extra-vars @../allstar-node-inventory/vault/production.yml
+ansible-playbook -i ../allstar-node-inventory/inventory/hosts.yml playbooks/backup.yml --limit cloud-hub --vault-id production@/home/jarvis/.config/allstar-node-factory/vault-production.key --extra-vars @../allstar-node-inventory/topology/permanent-links.yml --extra-vars @../allstar-node-inventory/vault/production.yml
 ```
 
 Expected: all non-production checks `PASS`, identity checks `NOT_APPLICABLE`, AllScan `PASS`, and backup checksum verification succeeds.
@@ -1440,7 +1520,7 @@ Expected: all non-production checks `PASS`, identity checks `NOT_APPLICABLE`, Al
 ### Task 18: Execute Controlled Cutover, Reboot Matrix, and Rollback Proof
 
 **Files:**
-- Modify in private repository: `host_vars/cloud-hub.yml`
+- Modify in private repository: `inventory/host_vars/cloud-hub.yml`
 - Create in private repository: `reports/redacted/cutover-YYYY-MM-DD.md`
 - Modify in private repository: `docs/estate.md`
 
@@ -1461,7 +1541,7 @@ During the approved window, stop old Asterisk/EchoLink and Broadcastify feed pro
 Set `production_services_enabled: true` in private inventory and run:
 
 ```bash
-ansible-playbook -i ../allstar-node-inventory/inventory/hosts.yml playbooks/vultr-hub.yml --limit cloud-hub --vault-id production@/home/jarvis/.config/allstar-node-factory/vault-production.key
+ansible-playbook -i ../allstar-node-inventory/inventory/hosts.yml playbooks/vultr-hub.yml --limit cloud-hub --vault-id production@/home/jarvis/.config/allstar-node-factory/vault-production.key --extra-vars @../allstar-node-inventory/topology/permanent-links.yml --extra-vars @../allstar-node-inventory/vault/production.yml
 ```
 
 Completion criterion: HTTP registration appears once, EchoLink logs in once, Broadcastify service is active, and no old identity is active.
@@ -1489,7 +1569,7 @@ Before deleting nothing, perform a tabletop/read-only rollback proof: confirm th
 
 - [ ] **Step 7: Close acceptance without deleting the old node**
 
-When every check passes, power off the old server and retain it plus its snapshot for the agreed rollback period. Capture a post-configuration snapshot of the new server. Write the redacted report and update estate metadata.
+When every check passes, power off the old server and retain it plus its snapshot for the agreed rollback period. Copy the native and supplemental backup archives plus checksum files to the approved off-host backup location outside both repositories, run `sha256sum -c` there, and record only the destination class, archive timestamp, size, and checksum in private estate metadata. Capture a post-configuration snapshot of the new server. Write the redacted report and update estate metadata.
 
 - [ ] **Step 8: Final framework verification and release decision**
 
@@ -1518,3 +1598,11 @@ Run all local tests, review the public PR, verify GitHub CI, and present results
 [8] https://raw.githubusercontent.com/davidgsd/AllScan/main/README.md — AllScan README
 [9] https://raw.githubusercontent.com/davidgsd/AllScan/main/AllScanInstallUpdate.php — AllScan Installer/Updater
 [10] https://allstarlink.github.io/adv-topics/conftmpl — ASL3 Configuration Templates
+[11] https://allstarlink.github.io/user-guide/troubleshooting — ASL3 Troubleshooting and Third-Party Support Policy
+[12] https://allstarlink.github.io/allmon3/usermgmt — Allmon3 User Management
+[13] https://repo.allstarlink.org/public/dists/trixie/main/binary-amd64/Packages — ASL3 Debian 13 Package Index
+[14] https://raw.githubusercontent.com/davidgsd/AllScan/main/include/UserModel.php — AllScan Authentication Model
+[15] https://api.github.com/repos/davidgsd/AllScan/commits/main — AllScan Main Commit Metadata
+[16] https://repo.allstarlink.org/public/asl-apt-repos.deb13_all.deb — ASL3 Debian 13 Repository Bootstrap Package
+[17] https://github.com/davidgsd/AllScan/archive/0309f2ff8fc5d2baf1c1df1afc13acb59781cd97.tar.gz — Pinned AllScan Source Archive
+[18] https://allstarlink.github.io/mans/asl-backup-menu — ASL3 Backup Utility
