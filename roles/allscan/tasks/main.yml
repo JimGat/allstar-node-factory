@@ -91,6 +91,22 @@
             remote_src: true
           become: true
 
+        - name: Discover stale AllScan application entries
+          ansible.builtin.find:
+            paths: "{{ allscan_web_root }}"
+            recurse: false
+            file_type: any
+            hidden: true
+          register: allscan_stale_application_entries
+          become: true
+
+        - name: Remove stale AllScan application entries
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ allscan_stale_application_entries.files }}"
+          become: true
+
         - name: Synchronize pinned AllScan application files
           ansible.builtin.copy:
             src: "{{ allscan_workspace.path }}/AllScan-{{ allscan_commit }}/"
@@ -98,6 +114,18 @@
             remote_src: true
             mode: preserve
           become: true
+
+        - name: Recreate preserved INI parent directories
+          ansible.builtin.file:
+            path: "{{ item.source | dirname }}"
+            state: directory
+            owner: root
+            group: "{{ allscan_web_group }}"
+            mode: "0775"
+          loop: "{{ allscan_preserved_ini_files.results }}"
+          become: true
+          no_log: true
+          diff: false
 
         - name: Restore preserved user INI files
           ansible.builtin.copy:
