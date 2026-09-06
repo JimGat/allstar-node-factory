@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 from jinja2 import Environment, StrictUndefined
 import yaml
@@ -108,3 +109,56 @@ def test_echolink_health_probes_are_read_only_and_publish_only_booleans():
     )
     assert facts
     assert all(value.strip().endswith("| bool }}") for value in facts.values())
+
+
+def test_echolink_error_fact_detects_both_log_orderings():
+    tasks = load_yaml(ROLE_DIR / "tasks" / "main.yml")
+    facts = next(
+        task["ansible.builtin.set_fact"]
+        for task in tasks
+        if task.get("name") == "Publish EchoLink health facts"
+    )
+    expression = facts["echolink_recent_errors_detected"]
+    match = re.search(r"is regex\('([^']+)'\)", expression)
+    assert match is not None
+    pattern = re.compile(match.group(1))
+
+    assert pattern.search("chan_echolink.so failed to load")
+    assert pattern.search("ERROR: unable to load chan_echolink.so")
+    assert pattern.search("NOTICE: chan_echolink.so loaded") is None
+
+
+def test_echolink_identity_requires_nonblank_strings():
+    tasks = load_yaml(ROLE_DIR / "tasks" / "main.yml")
+    validation = next(
+        task
+        for task in tasks
+        if task.get("name") == "Validate EchoLink identity configuration"
+    )
+    assertions = validation["ansible.builtin.assert"]["that"]
+
+    for name in (
+        "echolink_call",
+        "echolink_name",
+        "echolink_qth",
+        "echolink_email",
+        "echolink_node",
+        "echolink_astnode",
+        "vault_echolink_password",
+    ):
+        assert f"{name} is string" in assertions
+        assert f"{name} | trim | length > 0" in assertions
+
+
+def test_handlers_are_flushed_before_health_probes():
+    tasks = load_yaml(ROLE_DIR / "tasks" / "main.yml")
+    flush_index = next(
+        index
+        for index, task in enumerate(tasks)
+        if task.get("ansible.builtin.meta") == "flush_handlers"
+    )
+    first_probe_index = next(
+        index for index, task in enumerate(tasks) if "ansible.builtin.command" in task
+    )
+
+    assert flush_index < first_probe_index

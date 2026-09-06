@@ -2,14 +2,21 @@
 - name: Validate EchoLink identity configuration
   ansible.builtin.assert:
     that:
-      - echolink_call | string | length > 0
-      - echolink_name | string | length > 0
-      - echolink_qth | string | length > 0
-      - echolink_email | string | length > 0
-      - echolink_node | string | length > 0
-      - echolink_astnode | string | length > 0
+      - echolink_call is string
+      - echolink_call | trim | length > 0
+      - echolink_name is string
+      - echolink_name | trim | length > 0
+      - echolink_qth is string
+      - echolink_qth | trim | length > 0
+      - echolink_email is string
+      - echolink_email | trim | length > 0
+      - echolink_node is string
+      - echolink_node | trim | length > 0
+      - echolink_astnode is string
+      - echolink_astnode | trim | length > 0
       - vault_echolink_password is defined
-      - vault_echolink_password | string | length > 0
+      - vault_echolink_password is string
+      - vault_echolink_password | trim | length > 0
       - production_services_enabled is defined
     fail_msg: EchoLink requires complete identity fields and a vaulted password when enabled.
   when: echolink_enabled | bool
@@ -47,6 +54,10 @@
   become: true
   when: not (echolink_enabled | bool and production_services_enabled | bool)
   notify: Restart asterisk
+
+- name: Apply pending Asterisk changes before EchoLink health probes
+  ansible.builtin.meta: flush_handlers
+  when: echolink_enabled | bool and production_services_enabled | bool
 
 - name: Probe the EchoLink channel module
   ansible.builtin.command:
@@ -98,6 +109,6 @@
       {{
         (
           (echolink_log_probe.stdout | default(''))
-          is regex('(?i)echolink.*(?:error|failed|unable)')
+          is regex('(?i)(?:echolink.*(?:error|failed|unable)|(?:error|failed|unable).*echolink)')
         ) | bool }}
   no_log: true
