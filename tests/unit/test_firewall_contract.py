@@ -57,14 +57,16 @@ def test_ssh_is_allowed_per_management_cidr_before_ufw_is_enabled() -> None:
     ssh = task_by_name(tasks, "Allow SSH from management networks")
     assert ssh["community.general.ufw"] == {
         "rule": "allow",
-        "port": "22",
+        "to_port": "22",
         "proto": "tcp",
-        "src": "{{ item }}",
+        "from_ip": "{{ item }}",
     }
     assert ssh["loop"] == "{{ management_cidrs }}"
 
     ssh_index = tasks.index(ssh)
+    deny_index = tasks.index(task_by_name(tasks, "Deny incoming traffic by default"))
     enable_index = tasks.index(task_by_name(tasks, "Enable UFW"))
+    assert ssh_index < deny_index
     assert ssh_index < enable_index
 
 
@@ -74,33 +76,52 @@ def test_public_service_rules_are_scoped_and_conditional() -> None:
     iax = task_by_name(tasks, "Allow public AllStarLink IAX traffic")
     assert iax["community.general.ufw"] == {
         "rule": "allow",
-        "port": "{{ asl_iax_port }}",
+        "to_port": "{{ asl_iax_port }}",
         "proto": "udp",
-        "src": "0.0.0.0/0",
+        "from_ip": "0.0.0.0/0",
     }
 
     echolink = task_by_name(tasks, "Allow public EchoLink audio traffic")
     assert echolink["community.general.ufw"] == {
         "rule": "allow",
-        "port": "{{ item }}",
+        "to_port": "{{ item }}",
         "proto": "udp",
-        "src": "0.0.0.0/0",
+        "from_ip": "0.0.0.0/0",
     }
     assert echolink["loop"] == ["5198", "5199"]
     assert echolink["when"] == "echolink_enabled | bool"
 
     http = task_by_name(tasks, "Allow public HTTP traffic")
-    assert http["community.general.ufw"]["port"] == "80"
+    assert http["community.general.ufw"]["to_port"] == "80"
     assert http["community.general.ufw"]["proto"] == "tcp"
     assert http["when"] == "web_public_enabled | bool"
 
     https = task_by_name(tasks, "Allow public HTTPS traffic")
-    assert https["community.general.ufw"]["port"] == "443"
+    assert https["community.general.ufw"]["to_port"] == "443"
     assert https["community.general.ufw"]["proto"] == "tcp"
     assert https["when"] == [
         "web_public_enabled | bool",
         "web_tls_enabled | bool",
     ]
+
+
+def test_disabled_features_remove_previously_opened_rules() -> None:
+    tasks = load_yaml(TASKS_PATH)
+
+    echolink = task_by_name(tasks, "Remove EchoLink rules when disabled")
+    assert echolink["community.general.ufw"]["delete"] is True
+    assert echolink["loop"] == ["5198", "5199"]
+    assert echolink["when"] == "not (echolink_enabled | bool)"
+
+    http = task_by_name(tasks, "Remove HTTP rule when public web is disabled")
+    assert http["community.general.ufw"]["delete"] is True
+    assert http["community.general.ufw"]["to_port"] == "80"
+    assert http["when"] == "not (web_public_enabled | bool)"
+
+    https = task_by_name(tasks, "Remove HTTPS rule when public TLS is disabled")
+    assert https["community.general.ufw"]["delete"] is True
+    assert https["community.general.ufw"]["to_port"] == "443"
+    assert https["when"] == "not ((web_public_enabled | bool) and (web_tls_enabled | bool))"
 
 
 def test_firewall_never_opens_tcp_5038() -> None:
@@ -114,3 +135,13 @@ def test_ufw_status_is_verbose_registered_and_read_only() -> None:
     assert status["ansible.builtin.command"]["cmd"] == "ufw status verbose"
     assert status["changed_when"] is False
     assert status["register"] == "firewall_ufw_status"
+
+
+def test_ufw_rules_use_supported_module_argument_names() -> None:
+    tasks = load_yaml(TASKS_PATH)
+    for task in tasks:
+        options = task.get("community.general.ufw")
+        if options is None:
+            continue
+        assert "port" not in options
+        assert "src" not in options

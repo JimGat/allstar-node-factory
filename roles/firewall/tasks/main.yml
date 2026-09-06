@@ -13,6 +13,14 @@
     name: ufw
     state: present
 
+- name: Allow SSH from management networks
+  community.general.ufw:
+    rule: allow
+    to_port: "22"
+    proto: tcp
+    from_ip: "{{ item }}"
+  loop: "{{ management_cidrs }}"
+
 - name: Deny incoming traffic by default
   community.general.ufw:
     default: deny
@@ -23,49 +31,71 @@
     default: allow
     direction: outgoing
 
-- name: Allow SSH from management networks
-  community.general.ufw:
-    rule: allow
-    port: "22"
-    proto: tcp
-    src: "{{ item }}"
-  loop: "{{ management_cidrs }}"
-
 - name: Allow public AllStarLink IAX traffic
   community.general.ufw:
     rule: allow
-    port: "{{ asl_iax_port }}"
+    to_port: "{{ asl_iax_port }}"
     proto: udp
-    src: 0.0.0.0/0
+    from_ip: 0.0.0.0/0
 
 - name: Allow public EchoLink audio traffic
   community.general.ufw:
     rule: allow
-    port: "{{ item }}"
+    to_port: "{{ item }}"
     proto: udp
-    src: 0.0.0.0/0
+    from_ip: 0.0.0.0/0
   loop:
     - "5198"
     - "5199"
   when: echolink_enabled | bool
 
+- name: Remove EchoLink rules when disabled
+  community.general.ufw:
+    delete: true
+    rule: allow
+    to_port: "{{ item }}"
+    proto: udp
+    from_ip: 0.0.0.0/0
+  loop:
+    - "5198"
+    - "5199"
+  when: not (echolink_enabled | bool)
+
 - name: Allow public HTTP traffic
   community.general.ufw:
     rule: allow
-    port: "80"
+    to_port: "80"
     proto: tcp
-    src: 0.0.0.0/0
+    from_ip: 0.0.0.0/0
   when: web_public_enabled | bool
+
+- name: Remove HTTP rule when public web is disabled
+  community.general.ufw:
+    delete: true
+    rule: allow
+    to_port: "80"
+    proto: tcp
+    from_ip: 0.0.0.0/0
+  when: not (web_public_enabled | bool)
 
 - name: Allow public HTTPS traffic
   community.general.ufw:
     rule: allow
-    port: "443"
+    to_port: "443"
     proto: tcp
-    src: 0.0.0.0/0
+    from_ip: 0.0.0.0/0
   when:
     - web_public_enabled | bool
     - web_tls_enabled | bool
+
+- name: Remove HTTPS rule when public TLS is disabled
+  community.general.ufw:
+    delete: true
+    rule: allow
+    to_port: "443"
+    proto: tcp
+    from_ip: 0.0.0.0/0
+  when: not ((web_public_enabled | bool) and (web_tls_enabled | bool))
 
 - name: Enable UFW
   community.general.ufw:
