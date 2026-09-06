@@ -5,6 +5,9 @@ duplex = 2
 idrecording = |i{{ asl_callsign }}
 statpost_url = http://stats.allstarlink.org/uhandler
 nodes = node-factory-nodes
+{% if broadcastify_enabled | default(false) | bool %}
+outstreamcmd = /usr/libexec/asl3/rpt_audio_writer,/var/lib/asterisk/{{ asl_node_number }}.fifo
+{% endif %}
 {% if permanent_link_enabled | bool and permanent_link_initiator == 'local' %}
 startup_macro = *813{{ permanent_link_peer_node }}
 {% endif %}

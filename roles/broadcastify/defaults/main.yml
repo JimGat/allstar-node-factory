@@ -1,0 +1,10 @@
+---
+broadcastify_enabled: false
+broadcastify_host: ""
+broadcastify_port: "80"
+broadcastify_mount: ""
+broadcastify_user: source
+broadcastify_input_samplerate: "8000"
+broadcastify_input_channels: "1"
+broadcastify_output_bitrate: 16k
+broadcastify_minimum_asl3_version: 3.18.2-2
