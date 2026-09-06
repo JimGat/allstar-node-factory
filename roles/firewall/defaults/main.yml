@@ -1,0 +1,5 @@
+---
+# These public interface names are shared with inventory and other roles.
+echolink_enabled: false  # noqa var-naming[no-role-prefix]
+web_public_enabled: false  # noqa var-naming[no-role-prefix]
+web_tls_enabled: false  # noqa var-naming[no-role-prefix]
