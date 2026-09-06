@@ -1,0 +1,9 @@
+---
+backup_root: /var/backups/allstar-node-factory
+backup_retain_count: 5
+backup_paths:
+  - /etc/asterisk
+  - /etc/allmon3
+  - /etc/allscan
+  - /etc/ufw
+  - /etc/systemd/system

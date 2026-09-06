@@ -1,0 +1,525 @@
+---
+- name: Validate the redacted validation policy
+  ansible.builtin.assert:
+    that:
+      - asl_node_number is defined
+      - asl_node_number is string
+      - asl_node_number is regex('^[0-9]{4,6}$')
+      - validation_report_root is string
+      - validation_report_root.startswith('/')
+      - validation_allowed_statuses == ['FAIL', 'INIT_REQUIRED', 'NOT_APPLICABLE', 'PASS']
+      - validation_fetch_dir | length == 0 or validation_fetch_dir.startswith('/')
+      - >-
+        validation_fetch_dir | length == 0
+        or validation_fetch_dir is not regex('(^|/)allstar-node-factory(?:/|$)')
+    fail_msg: Validation requires a bounded status vocabulary and safe absolute paths.
+
+- name: Create the restricted validation report directory
+  ansible.builtin.file:
+    path: "{{ validation_report_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  become: true
+
+- name: Read the installed ASL3 package version
+  ansible.builtin.command:
+    argv:
+      - dpkg-query
+      - -W
+      - "-f=${Version}"
+      - asl3
+  register: validation_asl3_version
+  changed_when: false
+  failed_when: false
+
+- name: Run the ASL3 installation check
+  ansible.builtin.command:
+    argv:
+      - asl-check-install
+  register: validation_asl_install
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Run the ASL3 node authentication check
+  ansible.builtin.command:
+    argv:
+      - asl-node-auth-check
+  register: validation_node_auth
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: production_services_enabled | default(false) | bool
+
+- name: Read the Asterisk enabled state
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-enabled
+      - asterisk
+  register: validation_asterisk_enabled
+  changed_when: false
+  failed_when: false
+
+- name: Read the Asterisk active state
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - asterisk
+  register: validation_asterisk_active
+  changed_when: false
+  failed_when: false
+
+- name: Read the Asterisk uptime
+  ansible.builtin.command:
+    argv:
+      - asterisk
+      - -rx
+      - core show uptime
+  register: validation_asterisk_uptime
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: production_services_enabled | default(false) | bool
+
+- name: Read ASL3 HTTP registrations
+  ansible.builtin.command:
+    argv:
+      - asterisk
+      - -rx
+      - rpt show registrations
+  register: validation_registrations
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: production_services_enabled | default(false) | bool
+
+- name: Read the EchoLink module state
+  ansible.builtin.command:
+    argv:
+      - asterisk
+      - -rx
+      - module show like chan_echolink.so
+  register: validation_echolink_module
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when:
+    - echolink_enabled | default(false) | bool
+    - production_services_enabled | default(false) | bool
+
+- name: Read network listeners
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -H
+      - -lntu
+  register: validation_sockets
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Read the Broadcastify service state
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - "asl-broadcastify@{{ asl_node_number }}"
+  register: validation_broadcastify_service
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when:
+    - broadcastify_enabled | default(false) | bool
+    - production_services_enabled | default(false) | bool
+
+- name: Inspect the Broadcastify FIFO
+  ansible.builtin.stat:
+    path: "/var/lib/asterisk/{{ asl_node_number }}.fifo"
+  register: validation_broadcastify_fifo
+  changed_when: false
+  no_log: true
+  when:
+    - broadcastify_enabled | default(false) | bool
+    - production_services_enabled | default(false) | bool
+
+- name: Query the local Allmon3 API
+  ansible.builtin.uri:
+    url: "{{ validation_allmon3_url }}"
+    method: GET
+    status_code: 200
+  register: validation_allmon3_http
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: allmon3_enabled | default(false) | bool
+
+- name: Query the local AllScan frontend
+  ansible.builtin.uri:
+    url: "{{ validation_allscan_url }}"
+    method: GET
+    status_code: 200
+  register: validation_allscan_http
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: allscan_enabled | default(false) | bool
+
+- name: Inspect the persistent AllScan database
+  ansible.builtin.stat:
+    path: /etc/allscan/allscan.db
+  register: validation_allscan_database
+  changed_when: false
+  no_log: true
+  when: allscan_enabled | default(false) | bool
+
+- name: Read the UFW policy
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - status
+      - verbose
+  register: validation_ufw
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Initialize the expected UFW rule result
+  ansible.builtin.set_fact:
+    validation_ufw_expected: >-
+      {{
+        validation_ufw.rc | default(1) == 0
+        and 'Status: active' in (validation_ufw.stdout | default(''))
+      }}
+
+- name: Confirm every expected UFW rule token
+  ansible.builtin.set_fact:
+    validation_ufw_expected: >-
+      {{ validation_ufw_expected and (item | string) in validation_ufw.stdout }}
+  loop: >-
+    {{
+      (management_cidrs | default([]))
+      + [asl_iax_port | default(4569) | string]
+      + (['5198', '5199'] if echolink_enabled | default(false) | bool else [])
+    }}
+  no_log: true
+
+- name: Read the permanent-link state
+  ansible.builtin.command:
+    argv:
+      - asterisk
+      - -rx
+      - "rpt lstats {{ asl_node_number }}"
+  register: validation_permanent_link
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when:
+    - permanent_link_enabled | default(false) | bool
+    - production_services_enabled | default(false) | bool
+
+- name: Find supplemental backup checksum files
+  ansible.builtin.find:
+    paths: "{{ validation_backup_root }}"
+    patterns: node-*.tar.gz.sha256
+    file_type: file
+    recurse: false
+  register: validation_backup_checksums
+  changed_when: false
+  become: true
+
+- name: Select the newest supplemental backup checksum
+  ansible.builtin.set_fact:
+    validation_backup_checksum_path: >-
+      {{
+        (
+          validation_backup_checksums.files
+          | sort(attribute='mtime', reverse=true)
+          | map(attribute='path')
+          | first
+        ) | default('')
+      }}
+
+- name: Verify the newest supplemental backup checksum
+  ansible.builtin.command:
+    argv:
+      - sha256sum
+      - --check
+      - --status
+      - "{{ validation_backup_checksum_path }}"
+  register: validation_backup_checksum
+  changed_when: false
+  failed_when: false
+  become: true
+  no_log: true
+  when: validation_backup_checksum_path | length > 0
+
+- name: Inspect the newest supplemental backup archive
+  ansible.builtin.stat:
+    path: "{{ validation_backup_checksum_path | regex_replace('\\.sha256$', '') }}"
+    checksum_algorithm: sha256
+  register: validation_backup_archive
+  changed_when: false
+  become: true
+  no_log: true
+  when: validation_backup_checksum_path | length > 0
+
+- name: Normalize validation checks to bounded statuses
+  ansible.builtin.set_fact:
+    validation_checks:
+      os_architecture: >-
+        {{
+          'PASS'
+          if (
+            ansible_distribution == 'Debian'
+            and ansible_distribution_major_version | int == 13
+            and ansible_architecture in validation_supported_architectures
+          )
+          else 'FAIL'
+        }}
+      asl3_version: >-
+        {{
+          'PASS'
+          if (
+            validation_asl3_version.rc == 0
+            and validation_asl3_version.stdout | trim | length > 0
+          )
+          else 'FAIL'
+        }}
+      asl_install: >-
+        {{
+          'PASS'
+          if (
+            validation_asl_install.rc == 0
+            and (
+              (validation_asl_install.stdout | default(''))
+              ~ '\n'
+              ~ (validation_asl_install.stderr | default(''))
+            )
+            is not regex('(?im)^\\s*(?:Error:|FATAL:)')
+          )
+          else 'FAIL'
+        }}
+      node_authentication: >-
+        {{
+          'NOT_APPLICABLE'
+          if not (production_services_enabled | default(false) | bool)
+          else 'PASS'
+          if (
+            validation_node_auth.rc | default(1) == 0
+            and (
+              (validation_node_auth.stdout | default(''))
+              ~ '\n'
+              ~ (validation_node_auth.stderr | default(''))
+            )
+            is not regex('(?im)^\\s*Error:')
+          )
+          else 'FAIL'
+        }}
+      asterisk: >-
+        {{
+          'NOT_APPLICABLE'
+          if not (production_services_enabled | default(false) | bool)
+          else 'PASS'
+          if (
+            validation_asterisk_enabled.rc == 0
+            and validation_asterisk_enabled.stdout | trim == 'enabled'
+            and validation_asterisk_active.rc == 0
+            and validation_asterisk_active.stdout | trim == 'active'
+            and validation_asterisk_uptime.rc | default(1) == 0
+          )
+          else 'FAIL'
+        }}
+      iax_socket: >-
+        {{
+          'NOT_APPLICABLE'
+          if not (production_services_enabled | default(false) | bool)
+          else 'PASS'
+          if (
+            validation_sockets.rc == 0
+            and validation_sockets.stdout | default('')
+            is regex('(?m)^udp\\s+.*:' ~ (asl_iax_port | string) ~ '\\b')
+          )
+          else 'FAIL'
+        }}
+      registration: >-
+        {{
+          'NOT_APPLICABLE'
+          if not (production_services_enabled | default(false) | bool)
+          else 'PASS'
+          if (
+            validation_registrations.rc | default(1) == 0
+            and (
+              validation_registrations.stdout | default('')
+              | regex_findall(
+                  '(?<![0-9])' ~ (asl_node_number | regex_escape) ~ '(?![0-9])'
+                )
+              | length == 1
+            )
+          )
+          else 'FAIL'
+        }}
+      ami_loopback: >-
+        {{
+          'PASS'
+          if (
+            validation_sockets.rc == 0
+            and validation_sockets.stdout | default('')
+            is not regex(
+              '(?m)^tcp\\s+.*\\s(?!(?:127\\.0\\.0\\.1|\\[::1\\]):)\\S+:5038\\b'
+            )
+          )
+          else 'FAIL'
+        }}
+      echolink: >-
+        {{
+          'NOT_APPLICABLE'
+          if not (
+            echolink_enabled | default(false) | bool
+            and production_services_enabled | default(false) | bool
+          )
+          else 'PASS'
+          if (
+            validation_echolink_module.rc | default(1) == 0
+            and 'chan_echolink.so' in (validation_echolink_module.stdout | default(''))
+            and '0 modules loaded' not in (validation_echolink_module.stdout | default(''))
+            and validation_sockets.stdout | default('') is regex('(?m)^udp\\s+.*:5198\\b')
+            and validation_sockets.stdout | default('') is regex('(?m)^udp\\s+.*:5199\\b')
+          )
+          else 'FAIL'
+        }}
+      broadcastify: >-
+        {{
+          'NOT_APPLICABLE'
+          if not (
+            broadcastify_enabled | default(false) | bool
+            and production_services_enabled | default(false) | bool
+          )
+          else 'PASS'
+          if (
+            validation_broadcastify_service.rc | default(1) == 0
+            and validation_broadcastify_service.stdout | default('') | trim == 'active'
+            and validation_broadcastify_fifo.stat.exists | default(false)
+            and validation_broadcastify_fifo.stat.isfifo | default(false)
+          )
+          else 'FAIL'
+        }}
+      allmon3: >-
+        {{
+          'NOT_APPLICABLE'
+          if not (allmon3_enabled | default(false) | bool)
+          else 'PASS'
+          if (
+            validation_allmon3_http.status | default(-1) | int == 200
+            and validation_sockets.stdout | default('')
+            is not regex(
+              '(?m)^tcp\\s+.*\\s(?!(?:127\\.0\\.0\\.1|\\[::1\\]):)'
+              ~ '\\S+:(?:16080|16700|16701)\\b'
+            )
+          )
+          else 'FAIL'
+        }}
+      allscan: >-
+        {{
+          'NOT_APPLICABLE'
+          if not (allscan_enabled | default(false) | bool)
+          else 'PASS'
+          if (
+            validation_allscan_http.status | default(-1) | int == 200
+            and validation_allscan_database.stat.exists | default(false)
+          )
+          else 'INIT_REQUIRED'
+          if validation_allscan_http.status | default(-1) | int == 200
+          else 'FAIL'
+        }}
+      ufw: "{{ 'PASS' if validation_ufw_expected | bool else 'FAIL' }}"
+      permanent_link: >-
+        {{
+          'NOT_APPLICABLE'
+          if not (
+            permanent_link_enabled | default(false) | bool
+            and production_services_enabled | default(false) | bool
+          )
+          else 'PASS'
+          if (
+            validation_permanent_link.rc | default(1) == 0
+            and (
+              validation_permanent_link.stdout | default('')
+              | regex_findall(
+                  '(?<![0-9])'
+                  ~ (permanent_link_peer_node | default('') | regex_escape)
+                  ~ '(?![0-9])'
+                )
+              | length == 1
+            )
+          )
+          else 'FAIL'
+        }}
+      backup: >-
+        {{
+          'PASS'
+          if (
+            validation_backup_checksum_path | length > 0
+            and validation_backup_checksum.rc | default(1) == 0
+            and validation_backup_archive.stat.exists | default(false)
+            and validation_backup_archive.stat.size | default(0) | int > 0
+          )
+          else 'FAIL'
+        }}
+  no_log: true
+
+- name: Assert every normalized check uses the status vocabulary
+  ansible.builtin.assert:
+    that:
+      - >-
+        validation_checks.values() | list
+        | difference(validation_allowed_statuses)
+        | length == 0
+    fail_msg: A validation check emitted an unbounded status value.
+
+- name: Publish redacted validation metadata
+  ansible.builtin.set_fact:
+    validation_generated_at: "{{ ansible_date_time.iso8601 }}"
+    validation_overall_status: >-
+      {{ 'FAIL' if 'FAIL' in validation_checks.values() else 'PASS' }}
+    validation_backup_metadata: >-
+      {{
+        backup_metadata
+        if backup_metadata is defined
+        else {
+          'path': validation_backup_checksum_path | regex_replace('\\.sha256$', ''),
+          'timestamp': validation_backup_archive.stat.mtime | default(''),
+          'size': validation_backup_archive.stat.size | default(0) | int,
+          'checksum': validation_backup_archive.stat.checksum | default('')
+        }
+      }}
+  no_log: true
+
+- name: Write the redacted validation report
+  ansible.builtin.template:
+    src: report.json.j2
+    dest: "{{ validation_report_root }}/latest.json"
+    owner: root
+    group: root
+    mode: "0640"
+  become: true
+  no_log: true
+  diff: false
+
+- name: Fetch the explicitly requested redacted report
+  ansible.builtin.fetch:
+    src: "{{ validation_report_root }}/latest.json"
+    dest: "{{ validation_fetch_dir }}/{{ inventory_hostname }}-latest.json"
+    flat: true
+  when: validation_fetch_dir | length > 0
+  no_log: true
+
+- name: Fail after preserving validation evidence
+  ansible.builtin.fail:
+    msg: >-
+      Validation failed. Review the redacted report at
+      {{ validation_report_root }}/latest.json.
+  when: validation_overall_status == 'FAIL'

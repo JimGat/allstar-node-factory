@@ -1,0 +1,233 @@
+---
+- name: Validate backup policy
+  ansible.builtin.assert:
+    that:
+      - backup_root is string
+      - backup_root.startswith('/')
+      - backup_retain_count | int >= 1
+      - backup_paths is sequence
+      - backup_paths is not string
+      - backup_paths | length > 0
+      - asl_node_number is defined
+    fail_msg: Backup policy requires an absolute root, retention, paths, and node number.
+
+- name: Create the restricted backup directory
+  ansible.builtin.file:
+    path: "{{ backup_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+
+- name: Inspect the native ASL backup command
+  ansible.builtin.command:
+    argv:
+      - which
+      - asl-backup-menu
+  register: backup_native_command
+  changed_when: false
+  failed_when: false
+
+- name: Record the native backup start time
+  ansible.builtin.command:
+    argv:
+      - date
+      - +%s
+  register: backup_native_started
+  changed_when: false
+  when: backup_native_command.rc == 0
+
+- name: Create the native ASL configuration backup
+  ansible.builtin.command:
+    argv:
+      - asl-backup-menu
+      - backup-local
+  register: backup_native_result
+  become: true
+  changed_when: backup_native_result.rc == 0
+  when: backup_native_command.rc == 0
+  no_log: true
+
+- name: Find native ASL configuration backups
+  ansible.builtin.find:
+    paths: /var/asl-backups
+    patterns: ASL_*.tgz
+    file_type: file
+    recurse: false
+  register: backup_native_archives
+  become: true
+  changed_when: false
+  when: backup_native_command.rc == 0
+
+- name: Select the newly created native ASL backup
+  ansible.builtin.set_fact:
+    backup_native_archive_path: >-
+      {{
+        (
+          backup_native_archives.files
+          | selectattr('mtime', 'ge', backup_native_started.stdout | int)
+          | sort(attribute='mtime', reverse=true)
+          | map(attribute='path')
+          | first
+        ) | default('')
+      }}
+  when: backup_native_command.rc == 0
+  no_log: true
+
+- name: Inspect the newly created native ASL backup
+  ansible.builtin.stat:
+    path: "{{ backup_native_archive_path }}"
+  register: backup_native_archive
+  become: true
+  changed_when: false
+  when:
+    - backup_native_command.rc == 0
+    - backup_native_archive_path | length > 0
+  no_log: true
+
+- name: Verify the native ASL backup was created
+  ansible.builtin.assert:
+    that:
+      - backup_native_result.rc == 0
+      - backup_native_archive_path | length > 0
+      - backup_native_archive.stat.exists | default(false)
+      - backup_native_archive.stat.isreg | default(false)
+      - backup_native_archive.stat.readable | default(false)
+      - backup_native_archive.stat.size | default(0) | int > 0
+    fail_msg: asl-backup-menu did not create a new readable ASL_*.tgz archive.
+  when: backup_native_command.rc == 0
+  no_log: true
+
+- name: Inspect supplemental backup paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ backup_paths }}"
+  register: backup_path_stats
+  become: true
+  changed_when: false
+  no_log: true
+
+- name: Select existing supplemental backup paths
+  ansible.builtin.set_fact:
+    backup_existing_paths: >-
+      {{
+        backup_path_stats.results
+        | selectattr('stat.exists')
+        | map(attribute='item')
+        | list
+      }}
+  no_log: true
+
+- name: Require at least one existing supplemental backup path
+  ansible.builtin.assert:
+    that:
+      - backup_existing_paths | length > 0
+    fail_msg: None of the configured supplemental backup paths exist.
+  no_log: true
+
+- name: Set the supplemental backup identity
+  ansible.builtin.set_fact:
+    backup_timestamp: "{{ ansible_date_time.iso8601_basic_short }}Z"
+    backup_archive_path: >-
+      {{ backup_root }}/node-{{ asl_node_number }}-{{ ansible_date_time.iso8601_basic_short }}Z.tar.gz
+  no_log: true
+
+- name: Create the supplemental integration archive
+  community.general.archive:
+    path: "{{ backup_existing_paths }}"
+    dest: "{{ backup_archive_path }}"
+    format: gz
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  register: backup_archive_result
+  no_log: true
+  diff: false
+
+- name: Inspect the supplemental integration archive
+  ansible.builtin.stat:
+    path: "{{ backup_archive_path }}"
+    checksum_algorithm: sha256
+  register: backup_archive_stat
+  become: true
+  changed_when: false
+  no_log: true
+
+- name: Verify the supplemental integration archive
+  ansible.builtin.assert:
+    that:
+      - backup_archive_stat.stat.exists
+      - backup_archive_stat.stat.isreg
+      - backup_archive_stat.stat.readable
+      - backup_archive_stat.stat.size | int > 0
+      - backup_archive_stat.stat.checksum is regex('^[0-9a-f]{64}$')
+    fail_msg: Supplemental backup archive verification failed.
+  no_log: true
+
+- name: Write the supplemental archive checksum
+  ansible.builtin.copy:
+    content: "{{ backup_archive_stat.stat.checksum }}  {{ backup_archive_path }}\n"
+    dest: "{{ backup_archive_path }}.sha256"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  diff: false
+
+- name: Verify the supplemental archive checksum
+  ansible.builtin.command:
+    argv:
+      - sha256sum
+      - --check
+      - --status
+      - "{{ backup_archive_path }}.sha256"
+  become: true
+  changed_when: false
+  no_log: true
+
+- name: Find supplemental integration archives
+  ansible.builtin.find:
+    paths: "{{ backup_root }}"
+    patterns: node-*.tar.gz
+    file_type: file
+    recurse: false
+  register: backup_archives
+  become: true
+  changed_when: false
+
+- name: Select expired supplemental integration archives
+  ansible.builtin.set_fact:
+    backup_expired_archives: >-
+      {{
+        (backup_archives.files | sort(attribute='mtime', reverse=true))
+        [backup_retain_count | int:]
+      }}
+  no_log: true
+
+- name: Remove expired supplemental integration archives
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ backup_expired_archives }}"
+  become: true
+  no_log: true
+
+- name: Remove expired supplemental checksum files
+  ansible.builtin.file:
+    path: "{{ item.path }}.sha256"
+    state: absent
+  loop: "{{ backup_expired_archives }}"
+  become: true
+  no_log: true
+
+- name: Publish redacted backup metadata
+  ansible.builtin.set_fact:
+    backup_metadata:
+      path: "{{ backup_archive_path }}"
+      timestamp: "{{ backup_timestamp }}"
+      size: "{{ backup_archive_stat.stat.size | int }}"
+      checksum: "{{ backup_archive_stat.stat.checksum }}"
+  no_log: true
