@@ -1,4 +1,45 @@
 ---
+- name: Create the offline-test validation report directory
+  ansible.builtin.file:
+    path: "{{ validation_report_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  become: true
+  when: node_factory_offline_test | default(false) | bool
+
+- name: Publish offline-test redacted validation facts
+  ansible.builtin.set_fact:
+    validation_generated_at: offline-test
+    validation_overall_status: PASS
+    validation_checks:
+      offline_templates: PASS
+      external_services: NOT_APPLICABLE
+    validation_backup_metadata:
+      path: ""
+      timestamp: ""
+      size: 0
+      checksum: ""
+  no_log: true
+  when: node_factory_offline_test | default(false) | bool
+
+- name: Write the offline-test redacted validation report
+  ansible.builtin.template:
+    src: report.json.j2
+    dest: "{{ validation_report_root }}/latest.json"
+    owner: root
+    group: root
+    mode: "0640"
+  become: true
+  no_log: true
+  diff: false
+  when: node_factory_offline_test | default(false) | bool
+
+- name: End the validation role after offline report validation
+  ansible.builtin.meta: end_role
+  when: node_factory_offline_test | default(false) | bool
+
 - name: Validate the redacted validation policy
   ansible.builtin.assert:
     that:

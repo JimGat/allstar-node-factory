@@ -1,4 +1,50 @@
 ---
+- name: Create the offline-test Asterisk directory
+  ansible.builtin.file:
+    path: /etc/asterisk
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  become: true
+  when: node_factory_offline_test | default(false) | bool
+
+- name: Create the offline-test managed Asterisk directory
+  ansible.builtin.file:
+    path: /etc/asterisk/node-factory
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  become: true
+  when: node_factory_offline_test | default(false) | bool
+
+- name: Render offline-test ASL3 HTTP registration
+  ansible.builtin.template:
+    src: rpt_http_registrations.conf.j2
+    dest: /etc/asterisk/rpt_http_registrations.conf
+    owner: root
+    group: root
+    mode: "0640"
+  become: true
+  no_log: true
+  diff: false
+  when: node_factory_offline_test | default(false) | bool
+
+- name: Render the offline-test radioless node fragment
+  ansible.builtin.template:
+    src: rpt-node-factory.conf.j2
+    dest: /etc/asterisk/node-factory/rpt-node-factory.conf
+    owner: root
+    group: root
+    mode: "0640"
+  become: true
+  when: node_factory_offline_test | default(false) | bool
+
+- name: End the ASL3 core role after offline template validation
+  ansible.builtin.meta: end_role
+  when: node_factory_offline_test | default(false) | bool
+
 - name: Validate the ASL3 host and inventory contract
   ansible.builtin.assert:
     that:

@@ -1,0 +1,34 @@
+---
+- name: Exercise offline-safe node factory paths
+  hosts: allstar_nodes
+  gather_facts: true
+  become: true
+  vars:
+    node_factory_offline_test: true
+    production_services_enabled: false
+    asl_node_number: "1998"
+    asl_callsign: N0CALL
+    asl_iax_port: 4569
+    asl_rxchannel: Local/pseudo
+    vault_asl_node_password: fixture-only-123
+    vault_ami_secret: fixture-only-123
+    management_cidrs:
+      - 192.0.2.0/24
+    private_node_routes: {}
+    echolink_enabled: false
+    broadcastify_enabled: false
+    allmon3_enabled: false
+    allscan_enabled: false
+    permanent_link_enabled: false
+    permanent_link_initiator: external
+    permanent_link_peer_node: "1999"
+  roles:
+    - role: asl3_core
+      tags:
+        - core
+    - role: backup
+      tags:
+        - backup
+    - role: validation
+      tags:
+        - validate

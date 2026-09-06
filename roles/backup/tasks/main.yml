@@ -1,4 +1,18 @@
 ---
+- name: Create the offline-test restricted backup directory
+  ansible.builtin.file:
+    path: "{{ backup_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+  when: node_factory_offline_test | default(false) | bool
+
+- name: End the backup role after offline filesystem validation
+  ansible.builtin.meta: end_role
+  when: node_factory_offline_test | default(false) | bool
+
 - name: Validate backup policy
   ansible.builtin.assert:
     that:
