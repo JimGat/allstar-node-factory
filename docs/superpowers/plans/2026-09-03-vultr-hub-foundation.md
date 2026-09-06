@@ -775,7 +775,7 @@ Install `allmon3`, `apache2`, and `python3-pexpect`. Render `/etc/allmon3/allmon
 
 - [ ] **Step 4: Manage the Allmon3 login idempotently**
 
-Compute a controller-side SHA-256 digest of `allmon3_username + NUL + vault_allmon3_password`. Compare it to `/var/lib/allstar-node-factory/allmon3-user.sha256`. When absent or changed, run `community.general.expect` against `allmon3-passwd USER`, answering the password and confirmation prompts, with `no_log: true`; then write the digest sentinel mode `0600`. Notify `Reload allmon3`.
+Compute a controller-side SHA-256 digest of `allmon3_username + NUL + vault_allmon3_password`. Compare it to `/var/lib/allstar-node-factory/allmon3-user.sha256`. When absent or changed, run `ansible.builtin.expect` against `allmon3-passwd USER`, answering the password and confirmation prompts, with `no_log: true`; then write the digest sentinel mode `0600`. Notify `Reload allmon3`.
 
 Render `/etc/allmon3/user-restrictions` as `allmon3_username | asl_node_number`, owner `allmon3:allmon3`, mode `0660`; a missing user entry otherwise grants that user command access to every configured node.[12]
 

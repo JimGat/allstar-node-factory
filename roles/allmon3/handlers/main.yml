@@ -1,0 +1,7 @@
+---
+- name: Reload allmon3
+  ansible.builtin.service:
+    name: allmon3
+    state: restarted
+  become: true
+  when: allmon3_enabled | bool

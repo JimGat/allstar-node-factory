@@ -1,0 +1,301 @@
+---
+- name: Validate Allmon3 configuration
+  ansible.builtin.assert:
+    that:
+      - asl_node_number is string
+      - asl_node_number is regex('^[0-9]+$')
+      - allmon3_username is string
+      - allmon3_username is regex('^[A-Za-z0-9_.-]+$')
+      - allmon3_ami_host == '127.0.0.1'
+      - allmon3_ami_port | int == 5038
+      - allmon3_ami_user is string
+      - allmon3_ami_user | trim | length > 0
+      - vault_ami_secret is defined
+      - vault_ami_secret is string
+      - vault_ami_secret | length > 0
+      - vault_allmon3_password is defined
+      - vault_allmon3_password is string
+      - vault_allmon3_password | length > 0
+      - allmon3_http_bind_addr == '127.0.0.1'
+      - allmon3_http_port | int == 16080
+      - allmon3_ws_bind_addr == '127.0.0.1'
+      - allmon3_ws_port_start | int == 16700
+    fail_msg: Allmon3 requires loopback-only backends and complete vaulted credentials.
+  when: allmon3_enabled | bool
+  no_log: true
+  diff: false
+
+- name: Install Allmon3 and its web dependencies
+  ansible.builtin.apt:
+    name:
+      - allmon3
+      - apache2
+      - python3-pexpect
+    state: present
+  become: true
+  when: allmon3_enabled | bool
+
+- name: Inspect services when Allmon3 is disabled
+  ansible.builtin.service_facts:
+  when: not (allmon3_enabled | bool)
+
+- name: Stop and disable Allmon3 when disabled
+  ansible.builtin.service:
+    name: allmon3
+    state: stopped
+    enabled: false
+  become: true
+  when:
+    - not (allmon3_enabled | bool)
+    - "'allmon3.service' in ansible_facts.services"
+
+- name: Render the Allmon3 node configuration
+  ansible.builtin.template:
+    src: allmon3.ini.j2
+    dest: /etc/allmon3/allmon3.ini
+    owner: allmon3
+    group: allmon3
+    mode: "0660"
+  become: true
+  when: allmon3_enabled | bool
+  no_log: true
+  diff: false
+  notify: Reload allmon3
+
+- name: Render the loopback-only Allmon3 web configuration
+  ansible.builtin.template:
+    src: web.ini.j2
+    dest: /etc/allmon3/web.ini
+    owner: allmon3
+    group: allmon3
+    mode: "0660"
+  become: true
+  when: allmon3_enabled | bool
+  notify: Reload allmon3
+
+- name: Create the node factory state directory
+  ansible.builtin.file:
+    path: /var/lib/allstar-node-factory
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+  when: allmon3_enabled | bool
+
+- name: Compute the Allmon3 user credential digest
+  ansible.builtin.set_fact:
+    allmon3_user_digest: >-
+      {{ (allmon3_username ~ '\x00' ~ vault_allmon3_password) | hash('sha256') }}
+  when: allmon3_enabled | bool
+  no_log: true
+  diff: false
+
+- name: Inspect the Allmon3 user credential digest sentinel
+  ansible.builtin.stat:
+    path: /var/lib/allstar-node-factory/allmon3-user.sha256
+  register: allmon3_user_digest_sentinel
+  become: true
+  when: allmon3_enabled | bool
+
+- name: Read the installed Allmon3 user credential digest
+  ansible.builtin.slurp:
+    src: /var/lib/allstar-node-factory/allmon3-user.sha256
+  register: allmon3_installed_user_digest
+  become: true
+  when:
+    - allmon3_enabled | bool
+    - allmon3_user_digest_sentinel.stat.exists
+  no_log: true
+  diff: false
+
+- name: Determine whether the Allmon3 login changed
+  ansible.builtin.set_fact:
+    allmon3_user_digest_changed: >-
+      {{
+        not allmon3_user_digest_sentinel.stat.exists
+        or (allmon3_installed_user_digest.content | default('') | b64decode | trim)
+        != allmon3_user_digest
+      }}
+  when: allmon3_enabled | bool
+  no_log: true
+  diff: false
+
+- name: Inspect the managed Allmon3 username sentinel
+  ansible.builtin.stat:
+    path: /var/lib/allstar-node-factory/allmon3-user.name
+  register: allmon3_username_sentinel
+  become: true
+  when: allmon3_enabled | bool
+
+- name: Read the previously managed Allmon3 username
+  ansible.builtin.slurp:
+    src: /var/lib/allstar-node-factory/allmon3-user.name
+  register: allmon3_installed_username
+  become: true
+  when:
+    - allmon3_enabled | bool
+    - allmon3_username_sentinel.stat.exists
+
+- name: Determine the previously managed Allmon3 username
+  ansible.builtin.set_fact:
+    allmon3_previous_username: >-
+      {{
+        (allmon3_installed_username.content | default('') | b64decode | trim)
+        if allmon3_username_sentinel.stat.exists
+        else ''
+      }}
+  when: allmon3_enabled | bool
+
+- name: Remove the previously managed Allmon3 login
+  ansible.builtin.command:
+    argv:
+      - allmon3-passwd
+      - --delete
+      - "{{ allmon3_previous_username }}"
+  become: true
+  changed_when: true
+  when:
+    - allmon3_enabled | bool
+    - allmon3_username_sentinel.stat.exists
+    - allmon3_previous_username | length > 0
+    - allmon3_previous_username != allmon3_username
+  no_log: true
+
+- name: Render mandatory Allmon3 user restrictions
+  ansible.builtin.template:
+    src: user-restrictions.j2
+    dest: /etc/allmon3/user-restrictions
+    owner: allmon3
+    group: allmon3
+    mode: "0660"
+  become: true
+  when: allmon3_enabled | bool
+  notify: Reload allmon3
+
+- name: Manage the Allmon3 login
+  ansible.builtin.expect:
+    command: "allmon3-passwd {{ allmon3_username | quote }}"
+    responses:
+      "(?i).*password.*:":
+        - "{{ vault_allmon3_password }}"
+        - "{{ vault_allmon3_password }}"
+    timeout: 30
+  become: true
+  when: >-
+    allmon3_enabled | bool
+    and (allmon3_user_digest_changed | default(false) | bool)
+  no_log: true
+  diff: false
+  notify: Reload allmon3
+
+- name: Write the Allmon3 user credential digest
+  ansible.builtin.copy:
+    content: "{{ allmon3_user_digest }}\n"
+    dest: /var/lib/allstar-node-factory/allmon3-user.sha256
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  when: >-
+    allmon3_enabled | bool
+    and (allmon3_user_digest_changed | default(false) | bool)
+  no_log: true
+  diff: false
+  notify: Reload allmon3
+
+- name: Write the managed Allmon3 username
+  ansible.builtin.copy:
+    content: "{{ allmon3_username }}\n"
+    dest: /var/lib/allstar-node-factory/allmon3-user.name
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  when: allmon3_enabled | bool
+
+- name: Validate the Apache configuration
+  ansible.builtin.command:
+    argv:
+      - apache2ctl
+      - configtest
+  changed_when: false
+  become: true
+  when: allmon3_enabled | bool
+
+- name: Enable and start Allmon3
+  ansible.builtin.service:
+    name: allmon3
+    state: started
+    enabled: true
+  become: true
+  when: allmon3_enabled | bool
+
+- name: Enable and start Apache
+  ansible.builtin.service:
+    name: apache2
+    state: started
+    enabled: true
+  become: true
+  when: allmon3_enabled | bool
+
+- name: Apply pending Allmon3 configuration changes
+  ansible.builtin.meta: flush_handlers
+  when: allmon3_enabled | bool
+
+- name: Query the local Allmon3 node API
+  ansible.builtin.uri:
+    url: http://127.0.0.1:16080/node/listall
+    method: GET
+    status_code: 200
+    return_content: true
+  register: allmon3_node_api
+  changed_when: false
+  when: allmon3_enabled | bool
+
+- name: Query the local authenticated Allmon3 frontend
+  ansible.builtin.uri:
+    url: http://127.0.0.1/allmon3/
+    method: GET
+    follow_redirects: none
+    status_code:
+      - 200
+      - 301
+      - 302
+      - 303
+      - 307
+      - 308
+  register: allmon3_frontend
+  changed_when: false
+  failed_when: >-
+    allmon3_frontend.status != 200
+    and not (
+      allmon3_frontend.status in [301, 302, 303, 307, 308]
+      and allmon3_frontend.location is defined
+      and allmon3_frontend.location
+      is regex('^(?:https?://127\\.0\\.0\\.1)?/allmon3/.*(?:login|auth).*$', ignorecase=True)
+    )
+  when: allmon3_enabled | bool
+
+- name: Read local TCP listeners
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -H
+      - -ltn
+  register: allmon3_tcp_listeners
+  changed_when: false
+  when: allmon3_enabled | bool
+
+- name: Assert Allmon3 backends are loopback-only
+  ansible.builtin.assert:
+    that:
+      - >-
+        allmon3_tcp_listeners.stdout
+        is not regex(
+          '(?m)^LISTEN\\s+\\S+\\s+\\S+\\s+'
+          ~ '(?!(?:127\\.0\\.0\\.1|\\[::1\\]):)'
+          ~ '\\S+:(?:5038|16080|16700|16701)\\b'
+        )
+    fail_msg: An Allmon3 or AMI backend listener is exposed beyond loopback.
+  when: allmon3_enabled | bool
