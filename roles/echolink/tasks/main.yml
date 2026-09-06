@@ -102,8 +102,14 @@
       {{
         (
           (echolink_socket_probe.rc | default(1) == 0)
-          and (':5198 ' in (echolink_socket_probe.stdout | default('')))
-          and (':5199 ' in (echolink_socket_probe.stdout | default('')))
+          and (
+            (echolink_socket_probe.stdout | default(''))
+            is regex('(?im)^.*:5198\\s+.*asterisk.*$')
+          )
+          and (
+            (echolink_socket_probe.stdout | default(''))
+            is regex('(?im)^.*:5199\\s+.*asterisk.*$')
+          )
         ) | bool }}
     echolink_recent_errors_detected: >-
       {{

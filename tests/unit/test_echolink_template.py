@@ -162,3 +162,30 @@ def test_handlers_are_flushed_before_health_probes():
     )
 
     assert flush_index < first_probe_index
+
+
+def test_udp_health_requires_asterisk_to_own_both_ports():
+    tasks = load_yaml(ROLE_DIR / "tasks" / "main.yml")
+    facts = next(
+        task["ansible.builtin.set_fact"]
+        for task in tasks
+        if task.get("name") == "Publish EchoLink health facts"
+    )
+    expression = facts["echolink_udp_ports_ready"]
+    patterns = [
+        pattern.replace("\\\\", "\\")
+        for pattern in re.findall(r"is regex\('([^']+)'\)", expression)
+    ]
+    assert len(patterns) == 2
+
+    unrelated = (
+        'UNCONN 0 0 0.0.0.0:5198 0.0.0.0:* users:(("other",pid=1))\n'
+        'UNCONN 0 0 0.0.0.0:5199 0.0.0.0:* users:(("other",pid=1))'
+    )
+    owned = (
+        'UNCONN 0 0 0.0.0.0:5198 0.0.0.0:* users:(("asterisk",pid=2))\n'
+        'UNCONN 0 0 0.0.0.0:5199 0.0.0.0:* users:(("asterisk",pid=2))'
+    )
+
+    assert not all(re.search(pattern, unrelated) for pattern in patterns)
+    assert all(re.search(pattern, owned) for pattern in patterns)
