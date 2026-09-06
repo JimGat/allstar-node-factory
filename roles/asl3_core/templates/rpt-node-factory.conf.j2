@@ -1,0 +1,16 @@
+; Managed by allstar-node-factory. Local edits will be replaced.
+[{{ asl_node_number }}](node-main)
+rxchannel = {{ asl_rxchannel }}
+duplex = 2
+idrecording = |i{{ asl_callsign }}
+statpost_url = http://stats.allstarlink.org/uhandler
+nodes = node-factory-nodes
+{% if permanent_link_enabled | bool and permanent_link_initiator == 'local' %}
+startup_macro = *813{{ permanent_link_peer_node }}
+{% endif %}
+
+[node-factory-nodes]
+{{ asl_node_number }} = radio@127.0.0.1:{{ asl_iax_port }}/{{ asl_node_number }},NONE
+{% for node, route in private_node_routes | default({}) | dictsort %}
+{{ node }} = {{ route }}
+{% endfor %}

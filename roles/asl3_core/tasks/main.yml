@@ -1,0 +1,277 @@
+---
+- name: Validate the ASL3 host and inventory contract
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Debian'
+      - ansible_distribution_major_version | int == 13
+      - ansible_architecture in ['x86_64', 'amd64']
+      - asl_node_number is defined
+      - asl_callsign is defined
+      - asl_iax_port is defined
+      - asl_rxchannel is defined
+      - management_cidrs is defined
+      - vault_asl_node_password is defined
+      - vault_ami_secret is defined
+      - production_services_enabled is defined
+    fail_msg: >-
+      The ASL3 core role requires Debian 13 on amd64 and a complete,
+      validated inventory contract.
+
+- name: Verify privilege escalation reaches root
+  ansible.builtin.command: id -u
+  become: true
+  register: asl3_core_become_uid
+  changed_when: false
+
+- name: Assert privilege escalation works
+  ansible.builtin.assert:
+    that:
+      - asl3_core_become_uid.stdout == '0'
+    fail_msg: ansible_become must provide root privileges for the ASL3 core role.
+
+- name: Install ASL3 repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - sudo
+      - ufw
+      - python3
+    state: present
+    update_cache: true
+  become: true
+
+- name: Download the pinned ASL3 repository package
+  ansible.builtin.get_url:
+    url: "{{ asl3_repository_package_url }}"
+    dest: "{{ asl3_repository_package_path }}"
+    checksum: "sha256:{{ asl3_repository_package_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Install the ASL3 repository package
+  ansible.builtin.apt:
+    deb: "{{ asl3_repository_package_path }}"
+    state: present
+  become: true
+
+- name: Install ASL3 without activating staging services
+  ansible.builtin.apt:
+    name: asl3
+    state: present
+    update_cache: true
+    policy_rc_d: 101
+  become: true
+
+- name: Keep Asterisk disabled until production activation
+  ansible.builtin.service:
+    name: asterisk
+    state: stopped
+    enabled: false
+  become: true
+  when: not (production_services_enabled | bool)
+
+- name: Create the managed Asterisk configuration directory
+  ansible.builtin.file:
+    path: /etc/asterisk/node-factory
+    state: directory
+    owner: root
+    group: asterisk
+    mode: "0750"
+  become: true
+
+- name: Find required radioless Asterisk modules
+  ansible.builtin.find:
+    paths:
+      - /usr/lib/asterisk/modules
+      - /usr/lib/x86_64-linux-gnu/asterisk/modules
+    patterns:
+      - bridge_softmix.so
+      - chan_bridge_media.so
+      - chan_iax2.so
+    file_type: file
+    recurse: true
+  become: true
+  register: asl3_core_required_modules
+  changed_when: false
+
+- name: Assert required radioless Asterisk modules are installed
+  ansible.builtin.assert:
+    that:
+      - >-
+        'bridge_softmix.so' in
+        (asl3_core_required_modules.files | map(attribute='path') | map('basename') | list)
+      - >-
+        'chan_bridge_media.so' in
+        (asl3_core_required_modules.files | map(attribute='path') | map('basename') | list)
+      - >-
+        'chan_iax2.so' in
+        (asl3_core_required_modules.files | map(attribute='path') | map('basename') | list)
+    fail_msg: ASL3 did not install all modules required by the radioless hub.
+
+- name: Read packaged Asterisk module defaults
+  ansible.builtin.slurp:
+    src: /etc/asterisk/modules.conf
+  become: true
+  register: asl3_core_modules_conf
+  changed_when: false
+
+- name: Validate radioless Asterisk module defaults
+  ansible.builtin.assert:
+    that:
+      - >-
+        asl3_core_modules_conf.content | b64decode
+        is regex('(?im)^\\s*load\\s*(?:=>|=)\\s*res_timing_timerfd\\.so\\s*$')
+      - >-
+        asl3_core_modules_conf.content | b64decode
+        is not regex('(?im)^\\s*(?:pre)?load\\s*(?:=>|=)\\s*[^;]*dahdi[^;]*$')
+      - >-
+        asl3_core_modules_conf.content | b64decode
+        is not regex('(?im)^\\s*autoload\\s*=\\s*(?:yes|true|1)\\s*$')
+    fail_msg: >-
+      Packaged Asterisk modules are not safe for the Local/pseudo radioless hub.
+
+- name: Read the packaged rpt configuration
+  ansible.builtin.slurp:
+    src: /etc/asterisk/rpt.conf
+  become: true
+  register: asl3_core_rpt_conf
+  changed_when: false
+  no_log: true
+
+- name: Reject an unmanaged duplicate node stanza
+  ansible.builtin.assert:
+    that:
+      - >-
+        asl3_core_rpt_conf.content | b64decode
+        is not regex('(?m)^\\s*\\[' ~ asl_node_number | string ~ '\\](?:\\([^\\]\\r\\n]*\\))?\\s*$')
+    fail_msg: >-
+      Migration required: node {{ asl_node_number }} already exists outside
+      /etc/asterisk/node-factory; refusing to create a duplicate stanza.
+  no_log: true
+
+- name: Render the radioless node fragment
+  ansible.builtin.template:
+    src: rpt-node-factory.conf.j2
+    dest: /etc/asterisk/node-factory/rpt-node-factory.conf
+    owner: root
+    group: asterisk
+    mode: "0640"
+  become: true
+  notify: Restart asterisk
+
+- name: Include the managed node fragment from rpt.conf
+  ansible.builtin.lineinfile:
+    path: /etc/asterisk/rpt.conf
+    line: "#include /etc/asterisk/node-factory/rpt-node-factory.conf"
+    state: present
+  become: true
+  notify: Restart asterisk
+
+- name: Read the packaged IAX configuration
+  ansible.builtin.slurp:
+    src: /etc/asterisk/iax.conf
+  become: true
+  register: asl3_core_iax_conf
+  changed_when: false
+  no_log: true
+
+- name: Reject simultaneous IAX registration
+  ansible.builtin.assert:
+    that:
+      - >-
+        asl3_core_iax_conf.content | b64decode
+        is not regex('(?im)^\\s*register\\s*=>')
+    fail_msg: >-
+      Active register => lines in /etc/asterisk/iax.conf must be migrated
+      before enabling ASL3 HTTP registration.
+  no_log: true
+
+- name: Back up Asterisk before replacing registration configuration
+  ansible.builtin.include_role:
+    name: backup
+  vars:
+    backup_paths:
+      - /etc/asterisk
+  when: node_factory_require_prechange_backup | bool
+  no_log: true
+
+- name: Set the IAX bind port in the general section
+  community.general.ini_file:
+    path: /etc/asterisk/iax.conf
+    section: general
+    option: bindport
+    value: "{{ asl_iax_port }}"
+    owner: root
+    group: asterisk
+    mode: "0640"
+    no_extra_spaces: true
+  become: true
+  diff: false
+  notify: Restart asterisk
+
+- name: Render ASL3 HTTP registration
+  ansible.builtin.template:
+    src: rpt_http_registrations.conf.j2
+    dest: /etc/asterisk/rpt_http_registrations.conf
+    owner: root
+    group: asterisk
+    mode: "0640"
+  become: true
+  no_log: true
+  diff: false
+  notify: Restart asterisk
+
+- name: Read the packaged AMI configuration
+  ansible.builtin.slurp:
+    src: /etc/asterisk/manager.conf
+  become: true
+  register: asl3_core_manager_conf
+  changed_when: false
+  no_log: true
+
+- name: Assert packaged AMI is bound to loopback
+  ansible.builtin.assert:
+    that:
+      - >-
+        asl3_core_manager_conf.content | b64decode
+        is regex('(?ims)^\\[general\\]\\s*$[^\\[]*^bindaddr\\s*=\\s*127\\.0\\.0\\.1\\s*$')
+      - >-
+        asl3_core_manager_conf.content | b64decode
+        is not regex('(?im)^\\s*bindaddr\\s*=\\s*(?!127\\.0\\.0\\.1\\s*$).+$')
+    fail_msg: >-
+      Packaged AMI [general] must bind to 127.0.0.1 before dashboards can be enabled.
+  no_log: true
+
+- name: Render the loopback-only AMI account
+  ansible.builtin.template:
+    src: manager-node-factory.conf.j2
+    dest: /etc/asterisk/node-factory/manager-node-factory.conf
+    owner: root
+    group: asterisk
+    mode: "0640"
+  become: true
+  no_log: true
+  diff: false
+  notify: Restart asterisk
+
+- name: Include the managed AMI account from manager.conf
+  ansible.builtin.lineinfile:
+    path: /etc/asterisk/manager.conf
+    line: "#include /etc/asterisk/node-factory/manager-node-factory.conf"
+    state: present
+  become: true
+  no_log: true
+  diff: false
+  notify: Restart asterisk
+
+- name: Start and enable Asterisk after production activation
+  ansible.builtin.service:
+    name: asterisk
+    state: started
+    enabled: true
+  become: true
+  when: production_services_enabled | bool
