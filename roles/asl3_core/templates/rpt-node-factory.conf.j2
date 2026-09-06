@@ -8,7 +8,10 @@ nodes = node-factory-nodes
 {% if broadcastify_enabled | default(false) | bool %}
 outstreamcmd = /usr/libexec/asl3/rpt_audio_writer,/var/lib/asterisk/{{ asl_node_number }}.fifo
 {% endif %}
-{% if permanent_link_enabled | bool and permanent_link_initiator == 'local' %}
+{% set permanent_link_local_owner = permanent_link_local_startup_macro | default(
+  permanent_link_enabled | bool and permanent_link_initiator == 'local'
+) %}
+{% if permanent_link_local_owner | bool %}
 startup_macro = *813{{ permanent_link_peer_node }}
 {% endif %}
 
