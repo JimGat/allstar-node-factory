@@ -1,0 +1,65 @@
+---
+name: CI
+
+"on":
+  pull_request:
+  push:
+    branches:
+      - "**"
+
+permissions:
+  contents: read
+
+jobs:
+  offline-quality-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install controller dependencies
+        run: python3 -m pip install --requirement requirements-dev.txt
+
+      - name: Install pinned Ansible collection
+        run: ansible-galaxy collection install --requirements-file requirements.yml
+
+      - name: Scan project-specific secret policy
+        run: python3 scripts/check_no_secrets.py .
+
+      - name: Run pre-commit policy
+        run: pre-commit run --all-files
+
+      - name: Lint YAML
+        run: yamllint .
+
+      - name: Lint Ansible
+        run: ansible-lint
+
+      - name: Run unit tests
+        run: python3 -m pytest tests/unit -q
+
+      - name: Syntax-check deployment playbook
+        run: >-
+          ansible-playbook --syntax-check
+          -i inventories/example/hosts.yml
+          playbooks/vultr-hub.yml
+
+      - name: Syntax-check validation playbook
+        run: >-
+          ansible-playbook --syntax-check
+          -i inventories/example/hosts.yml
+          playbooks/validate.yml
+
+      - name: Syntax-check backup playbook
+        run: >-
+          ansible-playbook --syntax-check
+          -i inventories/example/hosts.yml
+          playbooks/backup.yml
