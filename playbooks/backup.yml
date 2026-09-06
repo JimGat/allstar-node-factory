@@ -1,0 +1,11 @@
+---
+- name: Back up AllStarLink nodes
+  hosts: allstar_nodes
+  gather_facts: true
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  roles:
+    - role: backup
+      tags:
+        - backup

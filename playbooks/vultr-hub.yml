@@ -1,0 +1,46 @@
+---
+- name: Deploy the staged Vultr radioless hub profile
+  hosts: allstar_nodes
+  gather_facts: true
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require an explicit production activation decision
+      ansible.builtin.assert:
+        that:
+          - production_services_enabled is defined
+          - production_services_enabled is boolean
+        fail_msg: >-
+          Set production_services_enabled explicitly to false for staging or
+          true only after the legacy identity-bearing services are stopped.
+      tags:
+        - always
+  roles:
+    - role: backup
+      tags:
+        - backup
+    - role: asl3_core
+      tags:
+        - core
+    - role: permanent_link
+      tags:
+        - links
+    - role: echolink
+      tags:
+        - echolink
+    - role: broadcastify
+      tags:
+        - broadcastify
+    - role: allmon3
+      tags:
+        - web
+    - role: allscan
+      tags:
+        - web
+    - role: firewall
+      tags:
+        - firewall
+    - role: validation
+      tags:
+        - validate
