@@ -1,0 +1,14 @@
+---
+- name: Restart asterisk
+  ansible.builtin.service:
+    name: asterisk
+    state: restarted
+    enabled: true
+  become: true
+  when: production_services_enabled | bool
+
+- name: Report deferred Asterisk activation
+  ansible.builtin.debug:
+    msg: Asterisk activation is deferred because production services are disabled.
+  when: not (production_services_enabled | bool)
+  listen: Restart asterisk
