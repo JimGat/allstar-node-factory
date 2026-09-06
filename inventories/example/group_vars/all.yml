@@ -1,0 +1,10 @@
+# FICTIONAL EXAMPLE ONLY — never use these values for production.
+---
+production_services_enabled: false
+management_cidrs:
+  - 192.0.2.0/24
+echolink_enabled: true
+broadcastify_enabled: true
+allmon3_enabled: true
+allscan_enabled: true
+permanent_link_enabled: true
