@@ -75,6 +75,18 @@ def test_backup_defaults_are_restricted_and_retain_five() -> None:
     ]
 
 
+def test_backup_check_mode_exits_before_runtime_archive_checks() -> None:
+    tasks = load_yaml(BACKUP_TASKS)
+    names = [task["name"] for task in tasks]
+    exit_task = task_by_name(tasks, "End the backup role after check-mode validation")
+
+    assert exit_task["ansible.builtin.meta"] == "end_role"
+    assert exit_task["when"] == "ansible_check_mode"
+    assert names.index("End the backup role after check-mode validation") < names.index(
+        "Inspect the native ASL backup command"
+    )
+
+
 def test_backup_archives_only_existing_paths_and_protects_secret_material() -> None:
     tasks = load_yaml(BACKUP_TASKS)
     archive = task_by_name(tasks, "Create the supplemental integration archive")

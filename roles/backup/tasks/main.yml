@@ -34,6 +34,10 @@
     mode: "0700"
   become: true
 
+- name: End the backup role after check-mode validation
+  ansible.builtin.meta: end_role
+  when: ansible_check_mode
+
 - name: Inspect the native ASL backup command
   ansible.builtin.command:
     argv:
