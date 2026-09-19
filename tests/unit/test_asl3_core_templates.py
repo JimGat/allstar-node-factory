@@ -72,6 +72,19 @@ def test_startup_macro_is_rendered_only_for_local_initiator():
     assert "startup_macro" not in remote
 
 
+def test_privilege_probe_runs_during_check_mode() -> None:
+    tasks_path = TEMPLATE_DIR.parent / "tasks" / "main.yml"
+    tasks = yaml.safe_load(tasks_path.read_text(encoding="utf-8"))
+    probe = next(
+        task
+        for task in tasks
+        if task.get("name") == "Verify privilege escalation reaches root"
+    )
+
+    assert probe["check_mode"] is False
+    assert probe["changed_when"] is False
+
+
 def test_production_activation_explicitly_starts_and_enables_asterisk():
     tasks_path = TEMPLATE_DIR.parent / "tasks" / "main.yml"
     tasks = yaml.safe_load(tasks_path.read_text(encoding="utf-8"))
