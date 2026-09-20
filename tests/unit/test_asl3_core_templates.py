@@ -16,6 +16,74 @@ def render_template(name, **context):
     return template.render(**context)
 
 
+def test_factory_configuration_uses_asl_native_custom_include_paths() -> None:
+    core_tasks = yaml.safe_load(
+        (TEMPLATE_DIR.parent / "tasks" / "main.yml").read_text(encoding="utf-8")
+    )
+    echolink_tasks = yaml.safe_load(
+        (
+            TEMPLATE_DIR.parents[1]
+            / "echolink"
+            / "tasks"
+            / "main.yml"
+        ).read_text(encoding="utf-8")
+    )
+
+    rpt = next(task for task in core_tasks if task.get("name") == "Render the radioless node fragment")
+    offline_rpt = next(
+        task
+        for task in core_tasks
+        if task.get("name") == "Render the offline-test radioless node fragment"
+    )
+    manager = next(
+        task for task in core_tasks if task.get("name") == "Render the loopback-only AMI account"
+    )
+    manager_hook = next(
+        task
+        for task in core_tasks
+        if task.get("name") == "Include the managed AMI account from manager.conf"
+    )
+    echolink = next(
+        task for task in echolink_tasks if task.get("name") == "Render EchoLink configuration"
+    )
+
+    assert rpt["ansible.builtin.template"]["dest"] == (
+        "/etc/asterisk/custom/rpt/node-factory.conf"
+    )
+    assert offline_rpt["ansible.builtin.template"]["dest"] == (
+        "/etc/asterisk/custom/rpt/node-factory.conf"
+    )
+    assert manager["ansible.builtin.template"]["dest"] == (
+        "/etc/asterisk/custom/manager-node-factory.conf"
+    )
+    assert manager_hook["ansible.builtin.lineinfile"]["line"] == (
+        "#include /etc/asterisk/custom/manager-node-factory.conf"
+    )
+    assert echolink["ansible.builtin.template"]["dest"] == (
+        "/etc/asterisk/custom/echolink.conf"
+    )
+    core_names = {task.get("name") for task in core_tasks}
+    echolink_names = {task.get("name") for task in echolink_tasks}
+    assert "Assert packaged RPT configuration loads native custom fragments" in core_names
+    assert "Assert packaged EchoLink configuration loads native custom fragment" in echolink_names
+    echolink_defaults = yaml.safe_load(
+        (
+            TEMPLATE_DIR.parents[1]
+            / "echolink"
+            / "defaults"
+            / "main.yml"
+        ).read_text(encoding="utf-8")
+    )
+    assert echolink_defaults["echolink_astnode"] == "{{ asl_node_number }}"
+    assert not any(
+        task.get("ansible.builtin.lineinfile", {}).get("path")
+        == "/etc/asterisk/rpt.conf"
+        and task.get("ansible.builtin.lineinfile", {}).get("state", "present")
+        == "present"
+        for task in core_tasks
+    )
+
+
 def test_asl3_core_templates_render_required_configuration():
     context = {
         "asl_node_number": 1998,
@@ -42,10 +110,38 @@ def test_asl3_core_templates_render_required_configuration():
         "register => 1998:fixture-only-123@register.allstarlink.org"
         in registrations
     )
-    assert "bindaddr = 127.0.0.1" in manager
+    assert "bindaddr" not in manager
+    assert "[general]" not in manager
     assert "secret = fixture-only-123" in manager
     assert "register =>" not in rpt
     assert "startup_macro" not in rpt
+
+
+def test_node_number_change_regenerates_identity_templates_without_stale_value():
+    context = {
+        "asl_callsign": "N0CALL",
+        "asl_iax_port": 4569,
+        "asl_rxchannel": "Local/pseudo",
+        "vault_asl_node_password": "fixture-only-123",
+        "permanent_link_enabled": False,
+        "permanent_link_initiator": "disabled",
+        "permanent_link_peer_node": 1999,
+        "private_node_routes": {},
+    }
+
+    old_rpt = render_template("rpt-node-factory.conf.j2", asl_node_number=1998, **context)
+    new_rpt = render_template("rpt-node-factory.conf.j2", asl_node_number=50017, **context)
+    new_registration = render_template(
+        "rpt_http_registrations.conf.j2",
+        asl_node_number=50017,
+        **context,
+    )
+
+    assert "[1998](node-main)" in old_rpt
+    assert "[50017](node-main)" in new_rpt
+    assert "1998" not in new_rpt
+    assert "register => 50017:fixture-only-123@register.allstarlink.org" in new_registration
+    assert "1998" not in new_registration
 
 
 def test_startup_macro_is_rendered_only_for_local_initiator():

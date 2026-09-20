@@ -5,7 +5,7 @@ echolink_name: ""
 echolink_qth: ""
 echolink_email: ""
 echolink_node: ""
-echolink_astnode: ""
+echolink_astnode: "{{ asl_node_number }}"
 echolink_lat: 0
 echolink_lon: 0
 echolink_freq: 0

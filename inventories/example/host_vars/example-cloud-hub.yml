@@ -6,7 +6,6 @@ asl_iax_port: 4569
 asl_rxchannel: Local/pseudo
 echolink_call: N0CALL-L
 echolink_node: "000001"
-echolink_astnode: "1998"
 permanent_link_peer_node: "1999"
 permanent_link_initiator: external
 vault_asl_node_password: fixture-only-123

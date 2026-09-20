@@ -64,7 +64,7 @@ def test_echolink_role_protects_secrets_and_reconciles_module_state():
 
     assert render["ansible.builtin.template"] == {
         "src": "echolink.conf.j2",
-        "dest": "/etc/asterisk/echolink.conf",
+        "dest": "/etc/asterisk/custom/echolink.conf",
         "owner": "root",
         "group": "asterisk",
         "mode": "0640",

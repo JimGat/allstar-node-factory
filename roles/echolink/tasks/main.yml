@@ -22,10 +22,31 @@
   when: echolink_enabled | bool
   no_log: true
 
+- name: Read the packaged EchoLink configuration
+  ansible.builtin.slurp:
+    src: /etc/asterisk/echolink.conf
+  become: true
+  register: echolink_packaged_conf
+  changed_when: false
+  when: echolink_enabled | bool
+  no_log: true
+
+- name: Assert packaged EchoLink configuration loads native custom fragment
+  ansible.builtin.assert:
+    that:
+      - >-
+        '#tryinclude "custom/echolink.conf"' in
+        (echolink_packaged_conf.content | b64decode)
+    fail_msg: >-
+      The installed ASL3 echolink.conf no longer loads custom/echolink.conf;
+      refusing to render an EchoLink fragment that Asterisk would ignore.
+  when: echolink_enabled | bool
+  no_log: true
+
 - name: Render EchoLink configuration
   ansible.builtin.template:
     src: echolink.conf.j2
-    dest: /etc/asterisk/echolink.conf
+    dest: /etc/asterisk/custom/echolink.conf
     owner: root
     group: asterisk
     mode: "0640"

@@ -11,11 +11,14 @@
 
 - name: Create the offline-test managed Asterisk directory
   ansible.builtin.file:
-    path: /etc/asterisk/node-factory
+    path: "{{ item }}"
     state: directory
     owner: root
     group: root
     mode: "0750"
+  loop:
+    - /etc/asterisk/custom
+    - /etc/asterisk/custom/rpt
   become: true
   when: node_factory_offline_test | default(false) | bool
 
@@ -34,7 +37,7 @@
 - name: Render the offline-test radioless node fragment
   ansible.builtin.template:
     src: rpt-node-factory.conf.j2
-    dest: /etc/asterisk/node-factory/rpt-node-factory.conf
+    dest: /etc/asterisk/custom/rpt/node-factory.conf
     owner: root
     group: root
     mode: "0640"
@@ -146,11 +149,14 @@
 
 - name: Create the managed Asterisk configuration directory
   ansible.builtin.file:
-    path: /etc/asterisk/node-factory
+    path: "{{ item }}"
     state: directory
     owner: root
     group: asterisk
     mode: "0750"
+  loop:
+    - /etc/asterisk/custom
+    - /etc/asterisk/custom/rpt
   become: true
 
 - name: Find required radioless Asterisk modules
@@ -212,6 +218,17 @@
   changed_when: false
   no_log: true
 
+- name: Assert packaged RPT configuration loads native custom fragments
+  ansible.builtin.assert:
+    that:
+      - >-
+        '#tryinclude "custom/rpt/*.conf"' in
+        (asl3_core_rpt_conf.content | b64decode)
+    fail_msg: >-
+      The installed ASL3 rpt.conf no longer loads custom/rpt/*.conf;
+      refusing to render a node fragment that Asterisk would ignore.
+  no_log: true
+
 - name: Reject an unmanaged duplicate node stanza
   ansible.builtin.assert:
     that:
@@ -220,24 +237,31 @@
         is not regex('(?m)^\\s*\\[' ~ asl_node_number | string ~ '\\](?:\\([^\\]\\r\\n]*\\))?\\s*$')
     fail_msg: >-
       Migration required: node {{ asl_node_number }} already exists outside
-      /etc/asterisk/node-factory; refusing to create a duplicate stanza.
+      /etc/asterisk/custom/rpt; refusing to create a duplicate stanza.
   no_log: true
 
 - name: Render the radioless node fragment
   ansible.builtin.template:
     src: rpt-node-factory.conf.j2
-    dest: /etc/asterisk/node-factory/rpt-node-factory.conf
+    dest: /etc/asterisk/custom/rpt/node-factory.conf
     owner: root
     group: asterisk
     mode: "0640"
   become: true
   notify: Restart asterisk
 
-- name: Include the managed node fragment from rpt.conf
+- name: Remove the obsolete direct node-factory include from rpt.conf
   ansible.builtin.lineinfile:
     path: /etc/asterisk/rpt.conf
     line: "#include /etc/asterisk/node-factory/rpt-node-factory.conf"
-    state: present
+    state: absent
+  become: true
+  notify: Restart asterisk
+
+- name: Remove the obsolete node-factory RPT fragment
+  ansible.builtin.file:
+    path: /etc/asterisk/node-factory/rpt-node-factory.conf
+    state: absent
   become: true
   notify: Restart asterisk
 
@@ -319,7 +343,7 @@
 - name: Render the loopback-only AMI account
   ansible.builtin.template:
     src: manager-node-factory.conf.j2
-    dest: /etc/asterisk/node-factory/manager-node-factory.conf
+    dest: /etc/asterisk/custom/manager-node-factory.conf
     owner: root
     group: asterisk
     mode: "0640"
@@ -331,7 +355,7 @@
 - name: Include the managed AMI account from manager.conf
   ansible.builtin.lineinfile:
     path: /etc/asterisk/manager.conf
-    line: "#include /etc/asterisk/node-factory/manager-node-factory.conf"
+    line: "#include /etc/asterisk/custom/manager-node-factory.conf"
     state: present
   become: true
   no_log: true
