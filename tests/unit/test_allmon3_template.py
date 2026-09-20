@@ -147,6 +147,10 @@ def test_public_allmon3_tasks_use_certbot_and_managed_apache_site():
     assert task_names.index("Assert the public AllScan read-only gate") < task_names.index(
         "Render the public Allmon3 TLS site"
     )
+    public_allscan_probe = next(
+        task for task in tasks if task.get("name") == "Probe the public AllScan read-only gate"
+    )
+    assert "become_user" not in public_allscan_probe
     argv = certificate["ansible.builtin.command"]["argv"]
     assert argv[:3] == ["certbot", "certonly", "--webroot"]
     assert "{{ allmon3_public_hostname }}" in argv

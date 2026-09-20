@@ -289,7 +289,6 @@
   changed_when: false
   failed_when: false
   become: true
-  become_user: www-data
   when:
     - allmon3_enabled | bool
     - web_public_enabled | default(false) | bool
