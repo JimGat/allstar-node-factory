@@ -102,6 +102,26 @@ def test_allmon3_role_protects_secrets_and_reconciles_user_by_digest():
     assert sentinel["when"] == guarded_change
 
 
+def test_check_mode_exits_before_allmon3_runtime_service_checks():
+    tasks = load_yaml(ROLE_DIR / "tasks" / "main.yml")
+    exit_task = next(
+        task
+        for task in tasks
+        if task.get("name")
+        == "End the Allmon3 role after check-mode configuration validation"
+    )
+    apache = next(
+        task for task in tasks if task.get("name") == "Validate the Apache configuration"
+    )
+    service = next(
+        task for task in tasks if task.get("name") == "Enable and start Allmon3"
+    )
+
+    assert exit_task["ansible.builtin.meta"] == "end_role"
+    assert exit_task["when"] == "ansible_check_mode"
+    assert tasks.index(exit_task) < tasks.index(apache) < tasks.index(service)
+
+
 def test_allmon3_role_has_mandatory_validation_and_no_public_backend_listeners():
     tasks = load_yaml(ROLE_DIR / "tasks" / "main.yml")
 

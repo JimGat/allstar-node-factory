@@ -214,6 +214,10 @@
   become: true
   when: allmon3_enabled | bool
 
+- name: End the Allmon3 role after check-mode configuration validation
+  ansible.builtin.meta: end_role
+  when: ansible_check_mode
+
 - name: Validate the Apache configuration
   ansible.builtin.command:
     argv:
