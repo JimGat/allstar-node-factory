@@ -36,6 +36,16 @@ def test_allscan_role_uses_pinned_safe_deployment() -> None:
     assert "/var/www/html/allscan" in serialized_tasks
 
 
+def test_allscan_public_web_requires_tls_and_the_restricted_allmon_vhost() -> None:
+    tasks = load_yaml(TASKS_PATH)
+    validation = task_by_name(tasks, "Validate AllScan deployment settings and first-run gate")
+    assertions = "\n".join(validation["ansible.builtin.assert"]["that"])
+
+    assert "not (web_public_enabled" in assertions
+    assert "web_tls_enabled" in assertions
+    assert "allmon3_enabled" in assertions
+
+
 def test_allscan_check_mode_exits_before_temporary_archive_workspace() -> None:
     tasks = load_yaml(TASKS_PATH)
     deploy = task_by_name(tasks, "Deploy optional AllScan")

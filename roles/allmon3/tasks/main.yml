@@ -35,6 +35,33 @@
   become: true
   when: allmon3_enabled | bool
 
+- name: Validate public Allmon3 TLS configuration
+  ansible.builtin.assert:
+    that:
+      - web_tls_enabled | default(false) | bool
+      - allmon3_public_hostname is string
+      - allmon3_public_hostname is regex('^[A-Za-z0-9.-]+$')
+      - allmon3_public_hostname | length > 3
+      - allmon3_acme_email is string
+      - allmon3_acme_email is regex('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')
+      - management_cidrs is sequence
+      - management_cidrs | length > 0
+    fail_msg: Public Allmon3 requires trusted TLS, a hostname, ACME email, and management CIDRs.
+  when:
+    - allmon3_enabled | bool
+    - web_public_enabled | default(false) | bool
+
+- name: Install public Allmon3 TLS dependencies
+  ansible.builtin.apt:
+    name:
+      - certbot
+      - python3-certbot-apache
+    state: present
+  become: true
+  when:
+    - allmon3_enabled | bool
+    - web_public_enabled | default(false) | bool
+
 - name: Inspect services when Allmon3 is disabled
   ansible.builtin.service_facts:
   when: not (allmon3_enabled | bool)
@@ -218,6 +245,98 @@
   ansible.builtin.meta: end_role
   when: ansible_check_mode
 
+- name: Create the public Allmon3 ACME challenge directory
+  ansible.builtin.file:
+    path: /var/www/html/.well-known/acme-challenge
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0755"
+  become: true
+  when:
+    - allmon3_enabled | bool
+    - web_public_enabled | default(false) | bool
+
+- name: Enable required public Allmon3 Apache modules
+  community.general.apache2_module:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - ssl
+    - headers
+    - rewrite
+    - proxy
+    - proxy_http
+    - proxy_wstunnel
+  become: true
+  when:
+    - allmon3_enabled | bool
+    - web_public_enabled | default(false) | bool
+  notify: Reload apache
+
+- name: Obtain or renew the public Allmon3 certificate
+  ansible.builtin.command:
+    argv:
+      - certbot
+      - certonly
+      - --webroot
+      - --webroot-path
+      - /var/www/html
+      - --domain
+      - "{{ allmon3_public_hostname }}"
+      - --email
+      - "{{ allmon3_acme_email }}"
+      - --agree-tos
+      - --non-interactive
+      - --keep-until-expiring
+  register: allmon3_certbot
+  changed_when: >-
+    'Certificate not yet due for renewal' not in
+    ((allmon3_certbot.stdout | default('')) ~ (allmon3_certbot.stderr | default('')))
+  become: true
+  when:
+    - allmon3_enabled | bool
+    - web_public_enabled | default(false) | bool
+
+- name: Render the public Allmon3 TLS site
+  ansible.builtin.template:
+    src: allmon3-public.conf.j2
+    dest: /etc/apache2/sites-available/allmon3-public.conf
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when:
+    - allmon3_enabled | bool
+    - web_public_enabled | default(false) | bool
+  notify: Reload apache
+
+- name: Disable the unrestricted default Apache site
+  ansible.builtin.command:
+    argv:
+      - a2dissite
+      - 000-default
+  register: allmon3_default_site
+  changed_when: "'Site 000-default disabled' in allmon3_default_site.stdout"
+  become: true
+  when:
+    - allmon3_enabled | bool
+    - web_public_enabled | default(false) | bool
+  notify: Reload apache
+
+- name: Enable the public Allmon3 TLS site
+  ansible.builtin.command:
+    argv:
+      - a2ensite
+      - allmon3-public
+  register: allmon3_public_site
+  changed_when: "'Enabling site allmon3-public' in allmon3_public_site.stdout"
+  become: true
+  when:
+    - allmon3_enabled | bool
+    - web_public_enabled | default(false) | bool
+  notify: Reload apache
+
 - name: Validate the Apache configuration
   ansible.builtin.command:
     argv:
@@ -277,7 +396,12 @@
       allmon3_frontend.status in [301, 302, 303, 307, 308]
       and allmon3_frontend.location is defined
       and allmon3_frontend.location
-      is regex('^(?:https?://127\\.0\\.0\\.1)?/allmon3/.*(?:login|auth).*$', ignorecase=True)
+      is regex(
+        '^(?:https?://(?:127\\.0\\.0\\.1|'
+        ~ (allmon3_public_hostname | default('') | regex_escape)
+        ~ '))?/allmon3/.*$',
+        ignorecase=True
+      )
     )
   when: allmon3_enabled | bool
 

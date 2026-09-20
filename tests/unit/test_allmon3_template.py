@@ -73,6 +73,52 @@ def test_allmon3_web_template_preserves_required_package_sections():
         assert section in web
 
 
+def test_public_allmon3_vhost_enforces_tls_and_path_boundaries():
+    rendered = render_template(
+        "allmon3-public.conf.j2",
+        allmon3_public_hostname="allmon-1998.example.test",
+        management_cidrs=["192.0.2.10/32", "198.51.100.20/32"],
+    )
+
+    assert "<VirtualHost *:80>" in rendered
+    assert "<VirtualHost *:443>" in rendered
+    assert "/.well-known/acme-challenge/" in rendered
+    assert "SSLEngine on" in rendered
+    assert "/etc/letsencrypt/live/allmon-1998.example.test/fullchain.pem" in rendered
+    assert 'LocationMatch "^/allmon3(?:/|$)"' in rendered
+    assert "Require all granted" in rendered
+    assert 'LocationMatch "^/allscan(?:/|$)"' in rendered
+    assert "Require ip 192.0.2.10/32" in rendered
+    assert "Require ip 198.51.100.20/32" in rendered
+    assert 'Location "/"' in rendered
+    assert "Require all denied" in rendered
+
+
+def test_public_allmon3_tasks_use_certbot_and_managed_apache_site():
+    tasks = load_yaml(ROLE_DIR / "tasks" / "main.yml")
+    names = {task.get("name") for task in tasks}
+
+    for name in (
+        "Validate public Allmon3 TLS configuration",
+        "Install public Allmon3 TLS dependencies",
+        "Obtain or renew the public Allmon3 certificate",
+        "Render the public Allmon3 TLS site",
+        "Disable the unrestricted default Apache site",
+        "Enable the public Allmon3 TLS site",
+    ):
+        assert name in names
+
+    certificate = next(
+        task
+        for task in tasks
+        if task.get("name") == "Obtain or renew the public Allmon3 certificate"
+    )
+    argv = certificate["ansible.builtin.command"]["argv"]
+    assert argv[:3] == ["certbot", "certonly", "--webroot"]
+    assert "{{ allmon3_public_hostname }}" in argv
+    assert "{{ allmon3_acme_email }}" in argv
+
+
 def test_allmon3_role_protects_secrets_and_reconciles_user_by_digest():
     tasks = load_yaml(ROLE_DIR / "tasks" / "main.yml")
     secret_tasks = {

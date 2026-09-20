@@ -10,7 +10,12 @@
           - allscan_web_root == '/var/www/html/allscan'
           - allscan_web_group is string
           - allscan_web_group | trim | length > 0
-          - not (web_public_enabled | default(false) | bool)
+          - >-
+            not (web_public_enabled | default(false) | bool)
+            or (
+              web_tls_enabled | default(false) | bool
+              and allmon3_enabled | default(false) | bool
+            )
         fail_msg: >-
           AllScan must remain commit-pinned and private until the first Superuser exists
           and Public Permission has manually been set to None.

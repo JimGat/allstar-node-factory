@@ -8,3 +8,5 @@ allmon3_http_bind_addr: 127.0.0.1
 allmon3_http_port: 16080
 allmon3_ws_bind_addr: 127.0.0.1
 allmon3_ws_port_start: 16700
+allmon3_public_hostname: ""
+allmon3_acme_email: ""
