@@ -60,6 +60,19 @@ def test_allmon3_backend_templates_are_loopback_only_and_restricted():
     assert restrictions.strip() == "operator | 1998"
 
 
+def test_allmon3_web_template_preserves_required_package_sections():
+    web = render_template(
+        "web.ini.j2",
+        allmon3_http_bind_addr="127.0.0.1",
+        allmon3_http_port=16080,
+        allmon3_ws_bind_addr="127.0.0.1",
+        allmon3_ws_port_start=16700,
+    )
+
+    for section in ("[web]", "[syscmds]", "[node-overrides]", "[voter-titles]"):
+        assert section in web
+
+
 def test_allmon3_role_protects_secrets_and_reconciles_user_by_digest():
     tasks = load_yaml(ROLE_DIR / "tasks" / "main.yml")
     secret_tasks = {
