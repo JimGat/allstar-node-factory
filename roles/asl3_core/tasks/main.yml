@@ -76,6 +76,21 @@
       - asl3_core_become_uid.stdout == '0'
     fail_msg: ansible_become must provide root privileges for the ASL3 core role.
 
+- name: Set the version-neutral ASL hostname
+  ansible.builtin.hostname:
+    name: "{{ asl_hostname }}"
+  become: true
+
+- name: Map the version-neutral ASL hostname locally
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s+'
+    line: "127.0.1.1 {{ asl_hostname }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
 - name: Install ASL3 repository prerequisites
   ansible.builtin.apt:
     name:

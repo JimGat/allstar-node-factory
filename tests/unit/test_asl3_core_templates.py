@@ -72,6 +72,26 @@ def test_startup_macro_is_rendered_only_for_local_initiator():
     assert "startup_macro" not in remote
 
 
+def test_hostname_default_is_version_neutral_and_managed() -> None:
+    role_dir = TEMPLATE_DIR.parent
+    defaults = yaml.safe_load(
+        (role_dir / "defaults" / "main.yml").read_text(encoding="utf-8")
+    )
+    tasks = yaml.safe_load(
+        (role_dir / "tasks" / "main.yml").read_text(encoding="utf-8")
+    )
+    hostname_task = next(
+        task for task in tasks if task.get("name") == "Set the version-neutral ASL hostname"
+    )
+    hosts_task = next(
+        task for task in tasks if task.get("name") == "Map the version-neutral ASL hostname locally"
+    )
+
+    assert defaults["asl_hostname"] == "asl-node-{{ asl_node_number }}"
+    assert hostname_task["ansible.builtin.hostname"]["name"] == "{{ asl_hostname }}"
+    assert hosts_task["ansible.builtin.lineinfile"]["line"] == "127.0.1.1 {{ asl_hostname }}"
+
+
 def test_privilege_probe_runs_during_check_mode() -> None:
     tasks_path = TEMPLATE_DIR.parent / "tasks" / "main.yml"
     tasks = yaml.safe_load(tasks_path.read_text(encoding="utf-8"))

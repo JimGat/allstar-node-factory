@@ -1,5 +1,6 @@
 ---
 production_services_enabled: false  # noqa var-naming[no-role-prefix]
+asl_hostname: "asl-node-{{ asl_node_number }}"  # noqa var-naming[no-role-prefix]
 permanent_link_enabled: false  # noqa var-naming[no-role-prefix]
 permanent_link_initiator: external  # noqa var-naming[no-role-prefix]
 permanent_link_peer_node: ""  # noqa var-naming[no-role-prefix]
