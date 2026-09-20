@@ -64,6 +64,10 @@
     mode: "0750"
   become: true
 
+- name: End the validation role after check-mode policy validation
+  ansible.builtin.meta: end_role
+  when: ansible_check_mode
+
 - name: Read the installed ASL3 package version
   ansible.builtin.command:
     argv:

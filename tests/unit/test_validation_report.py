@@ -105,6 +105,24 @@ def test_backup_archives_only_existing_paths_and_protects_secret_material() -> N
     ]
 
 
+def test_validation_check_mode_exits_before_live_runtime_probes() -> None:
+    tasks = load_yaml(VALIDATION_TASKS)
+    names = [task["name"] for task in tasks]
+    exit_task = task_by_name(
+        tasks,
+        "End the validation role after check-mode policy validation",
+    )
+
+    assert exit_task["ansible.builtin.meta"] == "end_role"
+    assert exit_task["when"] == "ansible_check_mode"
+    assert names.index("Create the restricted validation report directory") < names.index(
+        "End the validation role after check-mode policy validation"
+    )
+    assert names.index(
+        "End the validation role after check-mode policy validation"
+    ) < names.index("Read the installed ASL3 package version")
+
+
 def test_validation_writes_redacted_report_before_failure_gate() -> None:
     tasks = load_yaml(VALIDATION_TASKS)
     names = [task["name"] for task in tasks]
