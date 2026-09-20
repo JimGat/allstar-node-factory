@@ -194,13 +194,13 @@
     that:
       - >-
         asl3_core_modules_conf.content | b64decode
-        is regex('(?im)^\\s*load\\s*(?:=>|=)\\s*res_timing_timerfd\\.so\\s*$')
+        is regex('(?im)^\\s*load\\s*(?:=>|=)\\s*res_timing_timerfd\\.so(?:\\s*;.*)?$')
       - >-
         asl3_core_modules_conf.content | b64decode
-        is not regex('(?im)^\\s*(?:pre)?load\\s*(?:=>|=)\\s*[^;]*dahdi[^;]*$')
+        is not regex('(?im)^\\s*(?:pre)?load\\s*(?:=>|=)\\s*[^;]*dahdi[^;]*(?:\\s*;.*)?$')
       - >-
         asl3_core_modules_conf.content | b64decode
-        is not regex('(?im)^\\s*autoload\\s*=\\s*(?:yes|true|1)\\s*$')
+        is not regex('(?im)^\\s*autoload\\s*=\\s*(?:yes|true|1)\\s*(?:;.*)?$')
     fail_msg: >-
       Packaged Asterisk modules are not safe for the Local/pseudo radioless hub.
 

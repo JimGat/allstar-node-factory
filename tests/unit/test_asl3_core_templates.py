@@ -1,4 +1,6 @@
+import base64
 from pathlib import Path
+import re
 
 from jinja2 import Environment, StrictUndefined
 import yaml
@@ -191,6 +193,36 @@ def test_dahdi_guard_rejects_preload_and_autoload():
     assert "(?:pre)?load" in assertions
     assert "autoload" in assertions
     assert "dahdi" in assertions.lower()
+
+
+def test_radioless_module_guard_accepts_official_commented_syntax() -> None:
+    tasks_path = TEMPLATE_DIR.parent / "tasks" / "main.yml"
+    tasks = yaml.safe_load(tasks_path.read_text(encoding="utf-8"))
+    guard = next(
+        task
+        for task in tasks
+        if task.get("name") == "Validate radioless Asterisk module defaults"
+    )
+    environment = Environment(undefined=StrictUndefined)
+    environment.filters["b64decode"] = lambda value: base64.b64decode(value).decode()
+    environment.tests["regex"] = lambda value, pattern: re.search(pattern, value) is not None
+
+    def accepted(content: str) -> bool:
+        encoded = base64.b64encode(content.encode()).decode()
+        context = {"asl3_core_modules_conf": {"content": encoded}}
+        return all(
+            environment.compile_expression(assertion)(**context)
+            for assertion in guard["ansible.builtin.assert"]["that"]
+        )
+
+    safe = """[modules]
+autoload = no
+noload = chan_dahdi.so ; DAHDI disabled
+load = res_timing_timerfd.so ; Timerfd Timing Interface is preferred for ASL3
+"""
+    assert accepted(safe)
+    assert not accepted(safe.replace("noload = chan_dahdi.so", "load = chan_dahdi.so"))
+    assert not accepted(safe.replace("autoload = no", "autoload = yes"))
 
 
 def test_restart_handler_uses_privilege_escalation():
