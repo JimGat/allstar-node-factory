@@ -84,6 +84,9 @@ def test_public_allmon3_vhost_enforces_tls_and_path_boundaries():
     assert "<VirtualHost *:443>" in rendered
     assert "/.well-known/acme-challenge/" in rendered
     assert "SSLEngine on" in rendered
+    assert "options-ssl-apache.conf" not in rendered
+    assert "SSLProtocol all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1" in rendered
+    assert "Strict-Transport-Security" in rendered
     assert "/etc/letsencrypt/live/allmon-1998.example.test/fullchain.pem" in rendered
     assert 'LocationMatch "^/allmon3(?:/|$)"' in rendered
     assert "Require all granted" in rendered

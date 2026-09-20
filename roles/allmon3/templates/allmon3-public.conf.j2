@@ -16,7 +16,10 @@
     SSLEngine on
     SSLCertificateFile /etc/letsencrypt/live/{{ allmon3_public_hostname }}/fullchain.pem
     SSLCertificateKeyFile /etc/letsencrypt/live/{{ allmon3_public_hostname }}/privkey.pem
-    Include /etc/letsencrypt/options-ssl-apache.conf
+    SSLProtocol all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1
+    SSLCompression off
+    SSLSessionTickets off
+    Header always set Strict-Transport-Security "max-age=31536000"
 
     <Location "/">
         Require all denied
