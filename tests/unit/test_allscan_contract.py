@@ -36,6 +36,25 @@ def test_allscan_role_uses_pinned_safe_deployment() -> None:
     assert "/var/www/html/allscan" in serialized_tasks
 
 
+def test_allscan_check_mode_exits_before_temporary_archive_workspace() -> None:
+    tasks = load_yaml(TASKS_PATH)
+    deploy = task_by_name(tasks, "Deploy optional AllScan")
+    names = [task["name"] for task in deploy["block"]]
+    exit_task = task_by_name(
+        tasks,
+        "End the AllScan role after check-mode configuration validation",
+    )
+
+    assert exit_task["ansible.builtin.meta"] == "end_role"
+    assert exit_task["when"] == "ansible_check_mode"
+    assert names.index("Preserve existing user INI files in memory") < names.index(
+        "End the AllScan role after check-mode configuration validation"
+    )
+    assert names.index(
+        "End the AllScan role after check-mode configuration validation"
+    ) < names.index("Create the AllScan deployment workspace")
+
+
 def test_allscan_replaces_stale_application_only_after_verified_unpack() -> None:
     tasks = load_yaml(TASKS_PATH)
     install = task_by_name(tasks, "Install the reviewed AllScan archive")

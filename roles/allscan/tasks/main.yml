@@ -64,6 +64,10 @@
       no_log: true
       diff: false
 
+    - name: End the AllScan role after check-mode configuration validation
+      ansible.builtin.meta: end_role
+      when: ansible_check_mode
+
     - name: Create the AllScan deployment workspace
       ansible.builtin.tempfile:
         state: directory
