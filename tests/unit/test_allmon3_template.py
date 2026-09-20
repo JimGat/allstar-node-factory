@@ -113,6 +113,10 @@ def test_public_allscan_is_allowed_only_with_the_explicit_read_only_gate():
     )[0]
     assert "Require all granted" in allscan
     assert "Require ip" not in allscan
+    sensitive = rendered.split(
+        '<LocationMatch "^/allscan/(?:_tools(?:/|$)|.*\\.(?:ini|db|bak)$)">', 1
+    )[1].split("</LocationMatch>", 1)[0]
+    assert "Require all denied" in sensitive
 
 
 def test_public_allmon3_tasks_use_certbot_and_managed_apache_site():

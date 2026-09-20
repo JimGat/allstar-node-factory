@@ -42,6 +42,10 @@
 {% endif %}
     </LocationMatch>
 
+    <LocationMatch "^/allscan/(?:_tools(?:/|$)|.*\.(?:ini|db|bak)$)">
+        Require all denied
+    </LocationMatch>
+
     ErrorLog ${APACHE_LOG_DIR}/allmon3-public-error.log
     CustomLog ${APACHE_LOG_DIR}/allmon3-public-access.log combined
 </VirtualHost>
