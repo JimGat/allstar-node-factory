@@ -1,0 +1,9 @@
+FIFO={{ ('/var/lib/asterisk/' ~ asl_node_number ~ '.fifo') | quote }}
+ICECAST_HOST={{ broadcastify_host | quote }}
+ICECAST_PORT={{ broadcastify_port | quote }}
+ICECAST_MOUNT={{ broadcastify_mount | quote }}
+ICECAST_USER={{ broadcastify_user | quote }}
+ICECAST_PASSWORD={{ vault_broadcastify_password | quote }}
+INPUT_SAMPLERATE={{ broadcastify_input_samplerate | quote }}
+INPUT_CHANNELS={{ broadcastify_input_channels | quote }}
+OUTPUT_BITRATE={{ broadcastify_output_bitrate | quote }}

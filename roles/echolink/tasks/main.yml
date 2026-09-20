@@ -1,0 +1,141 @@
+---
+- name: Validate EchoLink identity configuration
+  ansible.builtin.assert:
+    that:
+      - echolink_call is string
+      - echolink_call | trim | length > 0
+      - echolink_name is string
+      - echolink_name | trim | length > 0
+      - echolink_qth is string
+      - echolink_qth | trim | length > 0
+      - echolink_email is string
+      - echolink_email | trim | length > 0
+      - echolink_node is string
+      - echolink_node | trim | length > 0
+      - echolink_astnode is string
+      - echolink_astnode | trim | length > 0
+      - vault_echolink_password is defined
+      - vault_echolink_password is string
+      - vault_echolink_password | trim | length > 0
+      - production_services_enabled is defined
+    fail_msg: EchoLink requires complete identity fields and a vaulted password when enabled.
+  when: echolink_enabled | bool
+  no_log: true
+
+- name: Read the packaged EchoLink configuration
+  ansible.builtin.slurp:
+    src: /etc/asterisk/echolink.conf
+  become: true
+  register: echolink_packaged_conf
+  changed_when: false
+  when: echolink_enabled | bool
+  no_log: true
+
+- name: Assert packaged EchoLink configuration loads native custom fragment
+  ansible.builtin.assert:
+    that:
+      - >-
+        '#tryinclude "custom/echolink.conf"' in
+        (echolink_packaged_conf.content | b64decode)
+    fail_msg: >-
+      The installed ASL3 echolink.conf no longer loads custom/echolink.conf;
+      refusing to render an EchoLink fragment that Asterisk would ignore.
+  when: echolink_enabled | bool
+  no_log: true
+
+- name: Render EchoLink configuration
+  ansible.builtin.template:
+    src: echolink.conf.j2
+    dest: /etc/asterisk/custom/echolink.conf
+    owner: root
+    group: asterisk
+    mode: "0640"
+  become: true
+  when: echolink_enabled | bool
+  no_log: true
+  diff: false
+  notify: Restart asterisk
+
+- name: Enable the EchoLink channel module for production
+  ansible.builtin.lineinfile:
+    path: /etc/asterisk/modules.conf
+    regexp: '^\s*(?:no)?load\s*=\s*chan_echolink\.so\s*$'
+    line: load = chan_echolink.so
+    state: present
+  become: true
+  when: echolink_enabled | bool and production_services_enabled | bool
+  notify: Restart asterisk
+
+- name: Disable the EchoLink channel module outside production
+  ansible.builtin.lineinfile:
+    path: /etc/asterisk/modules.conf
+    regexp: '^\s*(?:no)?load\s*=\s*chan_echolink\.so\s*$'
+    line: noload = chan_echolink.so
+    state: present
+  become: true
+  when: not (echolink_enabled | bool and production_services_enabled | bool)
+  notify: Restart asterisk
+
+- name: Apply pending Asterisk changes before EchoLink health probes
+  ansible.builtin.meta: flush_handlers
+  when: echolink_enabled | bool and production_services_enabled | bool
+
+- name: Probe the EchoLink channel module
+  ansible.builtin.command:
+    cmd: asterisk -rx 'module show like chan_echolink.so'
+  become: true
+  register: echolink_module_probe
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: echolink_enabled | bool and production_services_enabled | bool
+
+- name: Probe EchoLink UDP listeners
+  ansible.builtin.command:
+    cmd: ss -lunp
+  become: true
+  register: echolink_socket_probe
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: echolink_enabled | bool and production_services_enabled | bool
+
+- name: Probe recent Asterisk logs for EchoLink errors
+  ansible.builtin.command:
+    cmd: journalctl -u asterisk --since '-5 minutes' --no-pager
+  become: true
+  register: echolink_log_probe
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: echolink_enabled | bool and production_services_enabled | bool
+
+- name: Publish EchoLink health facts
+  ansible.builtin.set_fact:
+    echolink_module_loaded: >-
+      {{
+        (
+          (echolink_module_probe.rc | default(1) == 0)
+          and ('chan_echolink.so' in (echolink_module_probe.stdout | default('')))
+          and ('0 modules loaded' not in (echolink_module_probe.stdout | default('')))
+        ) | bool }}
+    echolink_udp_ports_ready: >-
+      {{
+        (
+          (echolink_socket_probe.rc | default(1) == 0)
+          and (
+            (echolink_socket_probe.stdout | default(''))
+            is regex('(?im)^.*:5198\\s+.*asterisk.*$')
+          )
+          and (
+            (echolink_socket_probe.stdout | default(''))
+            is regex('(?im)^.*:5199\\s+.*asterisk.*$')
+          )
+        ) | bool }}
+    echolink_recent_errors_detected: >-
+      {{
+        (
+          (echolink_log_probe.stdout | default(''))
+          is regex('(?i)(?:echolink.*(?:error|failed|unable)|(?:error|failed|unable).*echolink)')
+        ) | bool }}
+  no_log: true

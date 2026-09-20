@@ -1,0 +1,7 @@
+{
+  "node": {{ asl_node_number | string | to_json }},
+  "generated_at": {{ validation_generated_at | to_json }},
+  "overall": {{ validation_overall_status | to_json }},
+  "checks": {{ validation_checks | to_json }},
+  "backup": {{ validation_backup_metadata | to_json }}
+}

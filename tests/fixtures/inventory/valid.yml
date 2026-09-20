@@ -1,0 +1,23 @@
+---
+asl_node_number: "1998"
+asl_callsign: "N0CALL"
+asl_iax_port: 4569
+asl_rxchannel: "Local/pseudo"
+production_services_enabled: false
+management_cidrs: ["192.0.2.0/24"]
+echolink_enabled: true
+echolink_call: "N0CALL-L"
+echolink_node: "000001"
+echolink_astnode: "1998"
+broadcastify_enabled: true
+allmon3_enabled: true
+allscan_enabled: true
+permanent_link_enabled: true
+permanent_link_peer_node: "1999"
+permanent_link_initiator: "external"
+vault_asl_node_password: "fixture-only-123"
+vault_echolink_password: "fixture-only-123"
+vault_broadcastify_password: "fixture-only-123"
+vault_ami_secret: "fixture-only-123"
+vault_allmon3_password: "fixture-only-123"
+vault_allscan_password: "fixture-only-123"

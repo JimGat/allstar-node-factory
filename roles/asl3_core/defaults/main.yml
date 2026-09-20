@@ -1,0 +1,14 @@
+---
+production_services_enabled: false  # noqa var-naming[no-role-prefix]
+asl_hostname: "asl-node-{{ asl_node_number }}"  # noqa var-naming[no-role-prefix]
+permanent_link_enabled: false  # noqa var-naming[no-role-prefix]
+permanent_link_initiator: external  # noqa var-naming[no-role-prefix]
+permanent_link_peer_node: ""  # noqa var-naming[no-role-prefix]
+private_node_routes: {}  # noqa var-naming[no-role-prefix]
+node_factory_require_prechange_backup: true  # noqa var-naming[no-role-prefix]
+asl3_repository_package_url: >-  # noqa var-naming[no-role-prefix]
+  https://repo.allstarlink.org/public/asl-apt-repos.deb13_all.deb
+asl3_repository_package_path: >-  # noqa var-naming[no-role-prefix]
+  /var/cache/apt/archives/asl-apt-repos.deb13_all.deb
+asl3_repository_package_sha256: >-  # noqa var-naming[no-role-prefix]
+  22ae4334fc8780f105c33c0017ff4e2663198d3b52d977db48949a5a732889d5

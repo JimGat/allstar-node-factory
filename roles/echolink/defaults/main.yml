@@ -1,0 +1,16 @@
+---
+echolink_enabled: false
+echolink_call: ""
+echolink_name: ""
+echolink_qth: ""
+echolink_email: ""
+echolink_node: ""
+echolink_astnode: "{{ asl_node_number }}"
+echolink_lat: 0
+echolink_lon: 0
+echolink_freq: 0
+echolink_tone: 0
+echolink_power: 0
+echolink_height: 0
+echolink_gain: 0
+echolink_dir: 0

@@ -1,0 +1,323 @@
+---
+- name: Deploy optional AllScan
+  when: allscan_enabled | bool
+  block:
+    - name: Validate AllScan deployment settings and first-run gate
+      ansible.builtin.assert:
+        that:
+          - allscan_commit == '0309f2ff8fc5d2baf1c1df1afc13acb59781cd97'
+          - allscan_archive_sha256 == 'bad4e2992ba8778e75e6c8cf4df3d1f2f80b23a6511dc7a73edefa8f220c7840'
+          - allscan_web_root == '/var/www/html/allscan'
+          - allscan_web_group is string
+          - allscan_web_group | trim | length > 0
+          - >-
+            not (web_public_enabled | default(false) | bool)
+            or (
+              web_tls_enabled | default(false) | bool
+              and allmon3_enabled | default(false) | bool
+            )
+        fail_msg: >-
+          AllScan must remain commit-pinned and private until the first Superuser exists
+          and Public Permission has manually been set to None.
+
+    - name: Install approved AllScan dependencies
+      ansible.builtin.apt:
+        name:
+          - apache2
+          - libapache2-mod-php
+          - php
+          - php-sqlite3
+          - php-curl
+          - asl3-update-nodelist
+        state: present
+      become: true
+
+    - name: Create the persistent AllScan configuration directory
+      ansible.builtin.file:
+        path: /etc/allscan
+        state: directory
+        owner: root
+        group: "{{ allscan_web_group }}"
+        mode: "0770"
+      become: true
+
+    - name: Create the AllScan web root
+      ansible.builtin.file:
+        path: "{{ allscan_web_root }}"
+        state: directory
+        owner: root
+        group: "{{ allscan_web_group }}"
+        mode: "0775"
+      become: true
+
+    - name: Discover existing user INI files
+      ansible.builtin.find:
+        paths: "{{ allscan_web_root }}"
+        patterns: "*.ini"
+        recurse: true
+        file_type: file
+        hidden: true
+      register: allscan_existing_ini_files
+      become: true
+
+    - name: Preserve existing user INI files in memory
+      ansible.builtin.slurp:
+        src: "{{ item.path }}"
+      loop: "{{ allscan_existing_ini_files.files }}"
+      register: allscan_preserved_ini_files
+      become: true
+      no_log: true
+      diff: false
+
+    - name: End the AllScan role after check-mode configuration validation
+      ansible.builtin.meta: end_role
+      when: ansible_check_mode
+
+    - name: Create the AllScan deployment workspace
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: allscan-
+      register: allscan_workspace
+      become: true
+
+    - name: Install the reviewed AllScan archive
+      block:
+        - name: Download the pinned AllScan archive
+          ansible.builtin.get_url:
+            url: >-
+              https://github.com/davidgsd/AllScan/archive/{{ allscan_commit }}.tar.gz
+            dest: "{{ allscan_workspace.path }}/allscan.tar.gz"
+            checksum: "sha256:{{ allscan_archive_sha256 }}"
+            owner: root
+            group: root
+            mode: "0600"
+          become: true
+
+        - name: Unpack the pinned AllScan archive
+          ansible.builtin.unarchive:
+            src: "{{ allscan_workspace.path }}/allscan.tar.gz"
+            dest: "{{ allscan_workspace.path }}"
+            remote_src: true
+          become: true
+
+        - name: Discover stale AllScan application entries
+          ansible.builtin.find:
+            paths: "{{ allscan_web_root }}"
+            recurse: false
+            file_type: any
+            hidden: true
+          register: allscan_stale_application_entries
+          become: true
+
+        - name: Remove stale AllScan application entries
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ allscan_stale_application_entries.files }}"
+          become: true
+
+        - name: Synchronize pinned AllScan application files
+          ansible.builtin.copy:
+            src: "{{ allscan_workspace.path }}/AllScan-{{ allscan_commit }}/"
+            dest: "{{ allscan_web_root }}/"
+            remote_src: true
+            mode: preserve
+          become: true
+
+        - name: Recreate preserved INI parent directories
+          ansible.builtin.file:
+            path: "{{ item.source | dirname }}"
+            state: directory
+            owner: root
+            group: "{{ allscan_web_group }}"
+            mode: "0775"
+          loop: "{{ allscan_preserved_ini_files.results }}"
+          become: true
+          no_log: true
+          diff: false
+
+        - name: Restore preserved user INI files
+          ansible.builtin.copy:
+            content: "{{ item.content | b64decode }}"
+            dest: "{{ item.source }}"
+            owner: root
+            group: "{{ allscan_web_group }}"
+            mode: "0664"
+          loop: "{{ allscan_preserved_ini_files.results }}"
+          become: true
+          no_log: true
+          diff: false
+      always:
+        - name: Remove the AllScan deployment workspace
+          ansible.builtin.file:
+            path: "{{ allscan_workspace.path }}"
+            state: absent
+          become: true
+
+    - name: Discover AllScan application directories
+      ansible.builtin.find:
+        paths: "{{ allscan_web_root }}"
+        recurse: true
+        file_type: directory
+        hidden: true
+      register: allscan_application_directories
+      become: true
+
+    - name: Enforce AllScan application directory permissions
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: root
+        group: "{{ allscan_web_group }}"
+        mode: "0775"
+      loop: "{{ allscan_application_directories.files }}"
+      become: true
+
+    - name: Discover AllScan application files
+      ansible.builtin.find:
+        paths: "{{ allscan_web_root }}"
+        recurse: true
+        file_type: file
+        hidden: true
+      register: allscan_application_files
+      become: true
+
+    - name: Enforce AllScan application file permissions
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: root
+        group: "{{ allscan_web_group }}"
+        mode: "0664"
+      loop: "{{ allscan_application_files.files }}"
+      become: true
+
+    - name: Enable and start the ASTDB update timer
+      ansible.builtin.systemd_service:
+        name: asl3-update-astdb.timer
+        enabled: true
+        state: started
+      become: true
+
+    - name: Run the ASTDB updater once
+      ansible.builtin.systemd_service:
+        name: asl3-update-astdb.service
+        state: started
+      become: true
+
+    - name: Verify the generated ASTDB node list
+      ansible.builtin.stat:
+        path: /var/lib/asterisk/astdb.txt
+      register: allscan_astdb_source
+      become: true
+
+    - name: Assert the generated ASTDB node list is non-empty
+      ansible.builtin.assert:
+        that:
+          - allscan_astdb_source.stat.exists
+          - allscan_astdb_source.stat.isreg
+          - allscan_astdb_source.stat.size | int > 0
+        fail_msg: The ASTDB updater did not create a non-empty node list.
+
+    - name: Link AllScan to the generated ASTDB node list
+      ansible.builtin.file:
+        src: /var/lib/asterisk/astdb.txt
+        dest: "{{ allscan_web_root }}/astdb.txt"
+        state: link
+        owner: root
+        group: "{{ allscan_web_group }}"
+        force: true
+      become: true
+
+    - name: Inspect the AllScan ASTDB link
+      ansible.builtin.stat:
+        path: "{{ allscan_web_root }}/astdb.txt"
+        follow: false
+      register: allscan_astdb_link
+      become: true
+
+    - name: Resolve the AllScan ASTDB link
+      ansible.builtin.stat:
+        path: "{{ allscan_web_root }}/astdb.txt"
+        follow: true
+      register: allscan_astdb_resolved
+      become: true
+
+    - name: Assert the AllScan ASTDB link resolves to non-empty data
+      ansible.builtin.assert:
+        that:
+          - allscan_astdb_link.stat.islnk
+          - allscan_astdb_link.stat.lnk_source == '/var/lib/asterisk/astdb.txt'
+          - allscan_astdb_resolved.stat.isreg
+          - allscan_astdb_resolved.stat.size | int > 0
+        fail_msg: AllScan astdb.txt does not resolve to the generated ASTDB node list.
+
+    - name: Render the AllScan Apache security policy
+      ansible.builtin.template:
+        src: allscan-security.conf.j2
+        dest: /etc/apache2/conf-available/allscan-security.conf
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+      notify: Reload Apache
+
+    - name: Enable the AllScan Apache security policy
+      ansible.builtin.file:
+        src: /etc/apache2/conf-available/allscan-security.conf
+        dest: /etc/apache2/conf-enabled/allscan-security.conf
+        state: link
+      become: true
+      notify: Reload Apache
+
+    - name: Validate the Apache configuration before activation
+      ansible.builtin.command:
+        argv:
+          - apache2ctl
+          - configtest
+      changed_when: false
+      become: true
+
+    - name: Enable and start Apache
+      ansible.builtin.service:
+        name: apache2
+        enabled: true
+        state: started
+      become: true
+
+    - name: Apply validated Apache configuration changes
+      ansible.builtin.meta: flush_handlers
+
+    - name: Query the local AllScan frontend
+      ansible.builtin.uri:
+        url: http://127.0.0.1/allscan/
+        method: GET
+        status_code: 200
+        return_content: false
+      register: allscan_http_check
+      changed_when: false
+      failed_when: false
+
+    - name: Inspect the persistent AllScan database
+      ansible.builtin.stat:
+        path: /etc/allscan/allscan.db
+      register: allscan_database
+      become: true
+
+    - name: Set private writable permissions on the persistent AllScan database
+      ansible.builtin.file:
+        path: /etc/allscan/allscan.db
+        owner: root
+        group: "{{ allscan_web_group }}"
+        mode: "0660"
+      when: allscan_database.stat.exists
+      become: true
+
+    - name: Record the local AllScan health result
+      ansible.builtin.set_fact:
+        allscan_local_health: >-
+          {{
+            'PASS'
+            if (allscan_http_check.status | default(-1) | int == 200 and allscan_database.stat.exists)
+            else 'INIT_REQUIRED'
+            if (allscan_http_check.status | default(-1) | int == 200)
+            else 'FAIL'
+          }}

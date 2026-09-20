@@ -1,0 +1,51 @@
+# Managed by allstar-node-factory. Local edits will be replaced.
+<VirtualHost *:80>
+    ServerName {{ allmon3_public_hostname }}
+
+    Alias /.well-known/acme-challenge/ /var/www/html/.well-known/acme-challenge/
+    <Directory "/var/www/html/.well-known/acme-challenge">
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    RedirectMatch 301 ^/(?!\.well-known/acme-challenge/)(.*)$ https://{{ allmon3_public_hostname }}/$1
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName {{ allmon3_public_hostname }}
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/{{ allmon3_public_hostname }}/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/{{ allmon3_public_hostname }}/privkey.pem
+    SSLProtocol all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1
+    SSLCompression off
+    SSLSessionTickets off
+    Header always set Strict-Transport-Security "max-age=31536000"
+
+    <Location "/">
+        Require all denied
+    </Location>
+
+    <LocationMatch "^/allmon3(?:/|$)">
+        Require all granted
+    </LocationMatch>
+
+    <LocationMatch "^/allscan(?:/|$)">
+{% if allscan_public_read_only_enabled %}
+        Require all granted
+{% else %}
+        <RequireAny>
+            Require local
+{% for cidr in management_cidrs %}
+            Require ip {{ cidr }}
+{% endfor %}
+        </RequireAny>
+{% endif %}
+    </LocationMatch>
+
+    <LocationMatch "^/allscan/(?:_tools(?:/|$)|.*\.(?:ini|db|bak)$)">
+        Require all denied
+    </LocationMatch>
+
+    ErrorLog ${APACHE_LOG_DIR}/allmon3-public-error.log
+    CustomLog ${APACHE_LOG_DIR}/allmon3-public-access.log combined
+</VirtualHost>

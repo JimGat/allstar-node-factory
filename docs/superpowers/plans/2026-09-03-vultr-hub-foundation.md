@@ -341,12 +341,12 @@ allscan_enabled: true
 permanent_link_enabled: true
 permanent_link_peer_node: "1999"
 permanent_link_initiator: "external"
-vault_asl_node_password: "fixture-only-not-a-real-secret"
-vault_echolink_password: "fixture-only-not-a-real-secret"
-vault_broadcastify_password: "fixture-only-not-a-real-secret"
-vault_ami_secret: "fixture-only-not-a-real-secret"
-vault_allmon3_password: "fixture-only-not-a-real-secret"
-vault_allscan_password: "fixture-only-not-a-real-secret"
+vault_asl_node_password: "fixture-only-123"
+vault_echolink_password: "fixture-only-123"
+vault_broadcastify_password: "fixture-only-123"
+vault_ami_secret: "fixture-only-123"
+vault_allmon3_password: "fixture-only-123"
+vault_allscan_password: "fixture-only-123"
 ```
 
 `missing-secret.yml` is identical except that `vault_asl_node_password` is omitted.
@@ -443,9 +443,9 @@ The test renders all three Jinja templates with `jinja2.Environment(undefined=St
 ```python
 assert "[1998](node-main)" in rpt
 assert "rxchannel = Local/pseudo" in rpt
-assert "register => 1998:fixture-only-not-a-real-secret@register.allstarlink.org" in registrations
+assert "register => 1998:fixture-only-123@register.allstarlink.org" in registrations
 assert "bindaddr = 127.0.0.1" in manager
-assert "secret = fixture-only-not-a-real-secret" in manager
+assert "secret = fixture-only-123" in manager
 assert "register =>" not in rpt
 ```
 
@@ -627,7 +627,7 @@ Render with fictional values and assert all required fields are present and the 
 
 ```python
 for expected in (
-    "[el0]", "call = N0CALL-L", "pwd = fixture-only-not-a-real-secret",
+    "[el0]", "call = N0CALL-L", "pwd = fixture-only-123",
     "name = Example Operator", "qth = Example City", "email = example@example.invalid",
     "node = 000001", "astnode = 1998",
 ):
@@ -693,7 +693,7 @@ ICECAST_HOST=audio.example.invalid
 ICECAST_PORT=80
 ICECAST_MOUNT=/example
 ICECAST_USER=source
-ICECAST_PASSWORD=fixture-only-not-a-real-secret
+ICECAST_PASSWORD=fixture-only-123
 INPUT_SAMPLERATE=8000
 INPUT_CHANNELS=1
 OUTPUT_BITRATE=16k
@@ -758,7 +758,7 @@ Assert fictional rendering equals:
 host = 127.0.0.1
 port = 5038
 user = node-factory
-pass = fixture-only-not-a-real-secret
+pass = fixture-only-123
 ```
 
 Also assert `web.ini` binds the WebSocket listeners to `127.0.0.1` and the restriction file limits the configured user to the local node.
@@ -775,7 +775,7 @@ Install `allmon3`, `apache2`, and `python3-pexpect`. Render `/etc/allmon3/allmon
 
 - [ ] **Step 4: Manage the Allmon3 login idempotently**
 
-Compute a controller-side SHA-256 digest of `allmon3_username + NUL + vault_allmon3_password`. Compare it to `/var/lib/allstar-node-factory/allmon3-user.sha256`. When absent or changed, run `community.general.expect` against `allmon3-passwd USER`, answering the password and confirmation prompts, with `no_log: true`; then write the digest sentinel mode `0600`. Notify `Reload allmon3`.
+Compute a controller-side SHA-256 digest of `allmon3_username + NUL + vault_allmon3_password`. Compare it to `/var/lib/allstar-node-factory/allmon3-user.sha256`. When absent or changed, run `ansible.builtin.expect` against `allmon3-passwd USER`, answering the password and confirmation prompts, with `no_log: true`; then write the digest sentinel mode `0600`. Notify `Reload allmon3`.
 
 Render `/etc/allmon3/user-restrictions` as `allmon3_username | asl_node_number`, owner `allmon3:allmon3`, mode `0660`; a missing user entry otherwise grants that user command access to every configured node.[12]
 
@@ -929,7 +929,7 @@ Render a report with fixture secrets in the input context and assert:
 report = json.loads(rendered)
 assert report["node"] == "1998"
 assert report["checks"]["asterisk"] == "PASS"
-assert "fixture-only-not-a-real-secret" not in rendered
+assert "fixture-only-123" not in rendered
 assert set(report["checks"].values()) <= {
     "PASS", "FAIL", "NOT_APPLICABLE", "INIT_REQUIRED"
 }
@@ -1092,7 +1092,7 @@ The test must assert:
 assert host.file("/etc/asterisk/node-factory").mode == 0o750
 assert host.file("/etc/asterisk/node-factory/rpt_http_registrations.conf").mode == 0o640
 assert host.file("/var/backups/allstar-node-factory").mode == 0o700
-assert "fixture-only-not-a-real-secret" not in fetched_report
+assert "fixture-only-123" not in fetched_report
 ```
 
 - [ ] **Step 5: Run and commit**
@@ -1220,7 +1220,7 @@ ICECAST_PASSWORD=not-a-fixture
 192.168.50.5
 ```
 
-The scanner must reject each and allow `fixture-only-not-a-real-secret`, `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, and proper `$ANSIBLE_VAULT;1.2;AES256;production` ciphertext.
+The scanner must reject each and allow `fixture-only-123`, `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, and proper `$ANSIBLE_VAULT;1.2;AES256;production` ciphertext.
 
 - [ ] **Step 2: Run and confirm failure**
 

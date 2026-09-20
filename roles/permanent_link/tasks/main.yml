@@ -1,0 +1,71 @@
+---
+- name: Validate the permanent-link ownership contract
+  ansible.builtin.assert:
+    that:
+      - permanent_link_initiator in ['external', 'local']
+      - permanent_link_peer_node is string
+      - permanent_link_peer_node is regex('^[0-9]{4,6}$')
+      - asl_node_number is string
+      - permanent_link_peer_node != asl_node_number
+    fail_msg: >-
+      An enabled permanent link requires explicit local or external ownership,
+      a 4-6 digit peer node, and a peer different from the local node.
+  when: permanent_link_enabled | bool
+
+- name: Record local permanent-link template ownership
+  ansible.builtin.set_fact:
+    permanent_link_local_startup_macro: >-
+      {{ permanent_link_enabled | bool and permanent_link_initiator == 'local' }}
+
+- name: Read the managed Asterisk node fragment for external ownership
+  ansible.builtin.slurp:
+    src: /etc/asterisk/custom/rpt/node-factory.conf
+  become: true
+  register: permanent_link_managed_fragment
+  when:
+    - permanent_link_enabled | bool
+    - permanent_link_initiator == 'external'
+
+- name: Assert external ownership has no local startup macro
+  ansible.builtin.assert:
+    that:
+      - "'startup_macro' not in (permanent_link_managed_fragment.content | b64decode)"
+    fail_msg: >-
+      External permanent-link ownership forbids a local startup_macro.
+  when:
+    - permanent_link_enabled | bool
+    - permanent_link_initiator == 'external'
+
+- name: Read the permanent-link status
+  ansible.builtin.command:
+    argv:
+      - asterisk
+      - -rx
+      - "rpt lstats {{ asl_node_number }}"
+  register: permanent_link_status
+  changed_when: false
+  failed_when: false
+  when: permanent_link_enabled | bool
+
+- name: Record exact permanent-link presence
+  ansible.builtin.set_fact:
+    permanent_link_present: >-
+      {{
+        permanent_link_status.rc == 0
+        and
+        (
+          permanent_link_status.stdout
+          | regex_findall(
+              '(?<![0-9])'
+              ~ (permanent_link_peer_node | regex_escape)
+              ~ '(?![0-9])'
+            )
+          | length == 1
+        )
+      }}
+  when: permanent_link_enabled | bool
+
+- name: Record disabled permanent-link presence
+  ansible.builtin.set_fact:
+    permanent_link_present: false
+  when: not (permanent_link_enabled | bool)

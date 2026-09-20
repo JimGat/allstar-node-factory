@@ -1,0 +1,16 @@
+---
+- name: Reload allmon3
+  ansible.builtin.service:
+    name: allmon3
+    state: restarted
+  become: true
+  when:
+    - allmon3_enabled | bool
+    - not ansible_check_mode
+
+- name: Reload apache
+  ansible.builtin.service:
+    name: apache2
+    state: reloaded
+  become: true
+  when: not ansible_check_mode
