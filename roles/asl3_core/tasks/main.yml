@@ -113,12 +113,20 @@
     group: root
     mode: "0644"
   become: true
+  check_mode: false
 
 - name: Install the ASL3 repository package
   ansible.builtin.apt:
     deb: "{{ asl3_repository_package_path }}"
     state: present
   become: true
+  check_mode: false
+
+- name: Refresh the ASL3 repository package index
+  ansible.builtin.apt:
+    update_cache: true
+  become: true
+  check_mode: false
 
 - name: Install ASL3 without activating staging services
   ansible.builtin.apt:

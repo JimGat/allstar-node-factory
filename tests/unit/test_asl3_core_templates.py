@@ -72,6 +72,23 @@ def test_startup_macro_is_rendered_only_for_local_initiator():
     assert "startup_macro" not in remote
 
 
+def test_repository_bootstrap_is_materialized_during_check_mode() -> None:
+    tasks_path = TEMPLATE_DIR.parent / "tasks" / "main.yml"
+    tasks = yaml.safe_load(tasks_path.read_text(encoding="utf-8"))
+    names = {
+        "Download the pinned ASL3 repository package",
+        "Install the ASL3 repository package",
+        "Refresh the ASL3 repository package index",
+    }
+    bootstrap = {task["name"]: task for task in tasks if task.get("name") in names}
+
+    assert set(bootstrap) == names
+    assert all(task["check_mode"] is False for task in bootstrap.values())
+    assert bootstrap["Refresh the ASL3 repository package index"][
+        "ansible.builtin.apt"
+    ]["update_cache"] is True
+
+
 def test_hostname_default_is_version_neutral_and_managed() -> None:
     role_dir = TEMPLATE_DIR.parent
     defaults = yaml.safe_load(
