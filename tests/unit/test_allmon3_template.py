@@ -116,6 +116,13 @@ def test_public_allmon3_tasks_use_certbot_and_managed_apache_site():
         for task in tasks
         if task.get("name") == "Obtain or renew the public Allmon3 certificate"
     )
+    task_names = [task.get("name") for task in tasks]
+    assert task_names.index("Obtain or renew the public Allmon3 certificate") < task_names.index(
+        "Render the public Allmon3 TLS site"
+    )
+    assert task_names.index("Render the public Allmon3 TLS site") < task_names.index(
+        "Enable required public Allmon3 Apache modules"
+    )
     argv = certificate["ansible.builtin.command"]["argv"]
     assert argv[:3] == ["certbot", "certonly", "--webroot"]
     assert "{{ allmon3_public_hostname }}" in argv

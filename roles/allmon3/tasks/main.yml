@@ -257,23 +257,6 @@
     - allmon3_enabled | bool
     - web_public_enabled | default(false) | bool
 
-- name: Enable required public Allmon3 Apache modules
-  community.general.apache2_module:
-    name: "{{ item }}"
-    state: present
-  loop:
-    - ssl
-    - headers
-    - rewrite
-    - proxy
-    - proxy_http
-    - proxy_wstunnel
-  become: true
-  when:
-    - allmon3_enabled | bool
-    - web_public_enabled | default(false) | bool
-  notify: Reload apache
-
 - name: Obtain or renew the public Allmon3 certificate
   ansible.builtin.command:
     argv:
@@ -305,6 +288,23 @@
     owner: root
     group: root
     mode: "0644"
+  become: true
+  when:
+    - allmon3_enabled | bool
+    - web_public_enabled | default(false) | bool
+  notify: Reload apache
+
+- name: Enable required public Allmon3 Apache modules
+  community.general.apache2_module:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - ssl
+    - headers
+    - rewrite
+    - proxy
+    - proxy_http
+    - proxy_wstunnel
   become: true
   when:
     - allmon3_enabled | bool
