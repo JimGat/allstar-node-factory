@@ -70,6 +70,24 @@ def test_ssh_is_allowed_per_management_cidr_before_ufw_is_enabled() -> None:
     assert ssh_index < enable_index
 
 
+def test_unrestricted_ssh_rules_are_removed_after_management_rules_exist() -> None:
+    tasks = load_yaml(TASKS_PATH)
+    allow = task_by_name(tasks, "Allow SSH from management networks")
+    remove_v4 = task_by_name(tasks, "Remove unrestricted IPv4 SSH access")
+    remove_v6 = task_by_name(tasks, "Remove unrestricted IPv6 SSH access")
+    enable = task_by_name(tasks, "Enable UFW")
+
+    for task, source in ((remove_v4, "0.0.0.0/0"), (remove_v6, "::/0")):
+        assert task["community.general.ufw"] == {
+            "delete": True,
+            "rule": "allow",
+            "to_port": "22",
+            "proto": "tcp",
+            "from_ip": source,
+        }
+        assert tasks.index(allow) < tasks.index(task) < tasks.index(enable)
+
+
 def test_public_service_rules_are_scoped_and_conditional() -> None:
     tasks = load_yaml(TASKS_PATH)
 

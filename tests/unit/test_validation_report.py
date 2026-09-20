@@ -137,6 +137,23 @@ def test_validation_writes_redacted_report_before_failure_gate() -> None:
     assert write["diff"] is False
 
 
+def test_ufw_validation_normalizes_host_cidrs_and_rejects_open_ssh() -> None:
+    tasks = load_yaml(VALIDATION_TASKS)
+    initialize = task_by_name(tasks, "Initialize the expected UFW rule result")
+    confirm = task_by_name(tasks, "Confirm every expected UFW rule token")
+
+    initial_expression = initialize["ansible.builtin.set_fact"][
+        "validation_ufw_expected"
+    ]
+    loop_expression = confirm["loop"]
+
+    assert "22/tcp" in initial_expression
+    assert "Anywhere" in initial_expression
+    assert "not regex" in initial_expression
+    assert "regex_replace" in loop_expression
+    assert "/32$" in loop_expression
+
+
 def test_validation_is_read_only_and_has_bounded_status_defaults() -> None:
     defaults = load_yaml(VALIDATION_DEFAULTS)
     tasks = load_yaml(VALIDATION_TASKS)

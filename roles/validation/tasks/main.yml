@@ -238,6 +238,10 @@
       {{
         validation_ufw.rc | default(1) == 0
         and 'Status: active' in (validation_ufw.stdout | default(''))
+        and (validation_ufw.stdout | default(''))
+          is not regex(
+            '(?m)^22/tcp(?:\\s+\\(v6\\))?\\s+ALLOW IN\\s+Anywhere'
+          )
       }}
 
 - name: Confirm every expected UFW rule token
@@ -246,7 +250,7 @@
       {{ validation_ufw_expected and (item | string) in validation_ufw.stdout }}
   loop: >-
     {{
-      (management_cidrs | default([]))
+      (management_cidrs | default([]) | map('regex_replace', '/32$', '') | list)
       + [asl_iax_port | default(4569) | string]
       + (['5198', '5199'] if echolink_enabled | default(false) | bool else [])
     }}

@@ -21,6 +21,22 @@
     from_ip: "{{ item }}"
   loop: "{{ management_cidrs }}"
 
+- name: Remove unrestricted IPv4 SSH access
+  community.general.ufw:
+    delete: true
+    rule: allow
+    to_port: "22"
+    proto: tcp
+    from_ip: 0.0.0.0/0
+
+- name: Remove unrestricted IPv6 SSH access
+  community.general.ufw:
+    delete: true
+    rule: allow
+    to_port: "22"
+    proto: tcp
+    from_ip: ::/0
+
 - name: Deny incoming traffic by default
   community.general.ufw:
     default: deny
