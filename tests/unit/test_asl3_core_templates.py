@@ -84,6 +84,33 @@ def test_factory_configuration_uses_asl_native_custom_include_paths() -> None:
     )
 
 
+def test_rpt_include_is_normalized_for_official_auth_checker() -> None:
+    tasks = yaml.safe_load(
+        (TEMPLATE_DIR.parent / "tasks" / "main.yml").read_text(encoding="utf-8")
+    )
+    assertion = next(
+        task
+        for task in tasks
+        if task.get("name")
+        == "Assert packaged RPT configuration loads native custom fragments"
+    )
+    normalize = next(
+        task
+        for task in tasks
+        if task.get("name")
+        == "Normalize the RPT custom include for official ASL diagnostics"
+    )
+
+    assertion_text = "\n".join(assertion["ansible.builtin.assert"]["that"])
+    assert "regex" in assertion_text
+    assert "custom/rpt/\\\\*\\\\.conf" in assertion_text
+    assert normalize["ansible.builtin.replace"] == {
+        "path": "/etc/asterisk/rpt.conf",
+        "regexp": '^#tryinclude\\s+"custom/rpt/\\*\\.conf"\\s*$',
+        "replace": "#tryinclude custom/rpt/*.conf",
+    }
+
+
 def test_asl3_core_templates_render_required_configuration():
     context = {
         "asl_node_number": 1998,

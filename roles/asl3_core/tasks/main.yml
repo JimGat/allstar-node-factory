@@ -222,12 +222,19 @@
   ansible.builtin.assert:
     that:
       - >-
-        '#tryinclude "custom/rpt/*.conf"' in
-        (asl3_core_rpt_conf.content | b64decode)
+        asl3_core_rpt_conf.content | b64decode
+        is regex('(?m)^#tryinclude\\s+"?custom/rpt/\\*\\.conf"?\\s*$')
     fail_msg: >-
       The installed ASL3 rpt.conf no longer loads custom/rpt/*.conf;
       refusing to render a node fragment that Asterisk would ignore.
   no_log: true
+
+- name: Normalize the RPT custom include for official ASL diagnostics
+  ansible.builtin.replace:
+    path: /etc/asterisk/rpt.conf
+    regexp: '^#tryinclude\s+"custom/rpt/\*\.conf"\s*$'
+    replace: '#tryinclude custom/rpt/*.conf'
+  become: true
 
 - name: Reject an unmanaged duplicate node stanza
   ansible.builtin.assert:
