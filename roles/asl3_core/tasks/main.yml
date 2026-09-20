@@ -308,10 +308,10 @@
     that:
       - >-
         asl3_core_manager_conf.content | b64decode
-        is regex('(?ims)^\\[general\\]\\s*$[^\\[]*^bindaddr\\s*=\\s*127\\.0\\.0\\.1\\s*$')
+        is regex('(?ims)^\\[general\\]\\s*$(?:(?!^\\s*\\[).)*?^\\s*bindaddr\\s*=\\s*127\\.0\\.0\\.1\\s*(?:;.*)?$')
       - >-
         asl3_core_manager_conf.content | b64decode
-        is not regex('(?im)^\\s*bindaddr\\s*=\\s*(?!127\\.0\\.0\\.1\\s*$).+$')
+        is not regex('(?im)^\\s*bindaddr\\s*=(?!\\s*127\\.0\\.0\\.1\\s*(?:;.*)?$).+$')
     fail_msg: >-
       Packaged AMI [general] must bind to 127.0.0.1 before dashboards can be enabled.
   no_log: true

@@ -167,6 +167,37 @@ def test_package_install_always_suppresses_early_service_start():
     assert install["ansible.builtin.apt"]["policy_rc_d"] == 101
 
 
+def test_ami_guard_accepts_official_loopback_configuration() -> None:
+    tasks_path = TEMPLATE_DIR.parent / "tasks" / "main.yml"
+    tasks = yaml.safe_load(tasks_path.read_text(encoding="utf-8"))
+    guard = next(
+        task for task in tasks if task.get("name") == "Assert packaged AMI is bound to loopback"
+    )
+    environment = Environment(undefined=StrictUndefined)
+    environment.filters["b64decode"] = lambda value: base64.b64decode(value).decode()
+    environment.tests["regex"] = lambda value, pattern: re.search(pattern, value) is not None
+
+    def accepted(content: str) -> bool:
+        encoded = base64.b64encode(content.encode()).decode()
+        context = {"asl3_core_manager_conf": {"content": encoded}}
+        return all(
+            environment.compile_expression(assertion)(**context)
+            for assertion in guard["ansible.builtin.assert"]["that"]
+        )
+
+    safe = """[general]
+enabled = yes
+port = 5038
+bindaddr = 127.0.0.1
+
+[admin]
+secret = fixture-only
+"""
+    assert accepted(safe)
+    assert not accepted(safe.replace("127.0.0.1", "0.0.0.0"))
+    assert not accepted(safe.replace("bindaddr = 127.0.0.1", "bindaddr = 127.0.0.1\nbindaddr = ::"))
+
+
 def test_ami_guard_rejects_any_non_loopback_bind():
     tasks_path = TEMPLATE_DIR.parent / "tasks" / "main.yml"
     tasks = yaml.safe_load(tasks_path.read_text(encoding="utf-8"))
