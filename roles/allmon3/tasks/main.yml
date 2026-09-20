@@ -273,6 +273,40 @@
     - allmon3_enabled | bool
     - web_public_enabled | default(false) | bool
 
+- name: Probe the public AllScan read-only gate
+  ansible.builtin.command:
+    argv:
+      - php
+      - -r
+      - >-
+        $db = new SQLite3('/etc/allscan/allscan.db', SQLITE3_OPEN_READONLY);
+        $users = (int) $db->querySingle('SELECT COUNT(*) FROM user');
+        $permission = (int) $db->querySingle(
+          'SELECT COALESCE((SELECT CAST(val AS INTEGER) FROM cfg WHERE cfg_id=1), 2)'
+        );
+        echo $users . ':' . $permission;
+  register: allmon3_allscan_public_gate
+  changed_when: false
+  failed_when: false
+  become: true
+  become_user: www-data
+  when:
+    - allmon3_enabled | bool
+    - web_public_enabled | default(false) | bool
+    - allscan_public_read_only_enabled | default(false) | bool
+
+- name: Assert the public AllScan read-only gate
+  ansible.builtin.assert:
+    that:
+      - allmon3_allscan_public_gate.rc == 0
+      - allmon3_allscan_public_gate.stdout is regex('^[1-9][0-9]*:2$')
+    fail_msg: >-
+      Public AllScan requires at least one user and effective Public Permission Read Only.
+  when:
+    - allmon3_enabled | bool
+    - web_public_enabled | default(false) | bool
+    - allscan_public_read_only_enabled | default(false) | bool
+
 - name: Obtain or renew the public Allmon3 certificate
   ansible.builtin.command:
     argv:

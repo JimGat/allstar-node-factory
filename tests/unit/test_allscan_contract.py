@@ -46,6 +46,11 @@ def test_allscan_public_web_requires_tls_and_the_restricted_allmon_vhost() -> No
     assert "allmon3_enabled" in assertions
 
 
+def test_public_read_only_allscan_is_opt_in() -> None:
+    defaults = load_yaml(DEFAULTS_PATH)
+    assert defaults["allscan_public_read_only_enabled"] is False
+
+
 def test_allscan_check_mode_exits_before_temporary_archive_workspace() -> None:
     tasks = load_yaml(TASKS_PATH)
     deploy = task_by_name(tasks, "Deploy optional AllScan")

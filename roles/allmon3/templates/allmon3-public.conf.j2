@@ -30,12 +30,16 @@
     </LocationMatch>
 
     <LocationMatch "^/allscan(?:/|$)">
+{% if allscan_public_read_only_enabled %}
+        Require all granted
+{% else %}
         <RequireAny>
             Require local
 {% for cidr in management_cidrs %}
             Require ip {{ cidr }}
 {% endfor %}
         </RequireAny>
+{% endif %}
     </LocationMatch>
 
     ErrorLog ${APACHE_LOG_DIR}/allmon3-public-error.log

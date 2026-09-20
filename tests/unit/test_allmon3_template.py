@@ -78,6 +78,7 @@ def test_public_allmon3_vhost_enforces_tls_and_path_boundaries():
         "allmon3-public.conf.j2",
         allmon3_public_hostname="allmon-1998.example.test",
         management_cidrs=["192.0.2.10/32", "198.51.100.20/32"],
+        allscan_public_read_only_enabled=False,
     )
 
     assert "<VirtualHost *:80>" in rendered
@@ -99,6 +100,21 @@ def test_public_allmon3_vhost_enforces_tls_and_path_boundaries():
     assert "Require all denied" in rendered
 
 
+def test_public_allscan_is_allowed_only_with_the_explicit_read_only_gate():
+    rendered = render_template(
+        "allmon3-public.conf.j2",
+        allmon3_public_hostname="allmon-1998.example.test",
+        management_cidrs=["192.0.2.10/32", "198.51.100.20/32"],
+        allscan_public_read_only_enabled=True,
+    )
+
+    allscan = rendered.split('<LocationMatch "^/allscan(?:/|$)">', 1)[1].split(
+        "</LocationMatch>", 1
+    )[0]
+    assert "Require all granted" in allscan
+    assert "Require ip" not in allscan
+
+
 def test_public_allmon3_tasks_use_certbot_and_managed_apache_site():
     tasks = load_yaml(ROLE_DIR / "tasks" / "main.yml")
     names = {task.get("name") for task in tasks}
@@ -107,6 +123,8 @@ def test_public_allmon3_tasks_use_certbot_and_managed_apache_site():
         "Validate public Allmon3 TLS configuration",
         "Install public Allmon3 TLS dependencies",
         "Install Apache reload hook for certificate renewal",
+        "Probe the public AllScan read-only gate",
+        "Assert the public AllScan read-only gate",
         "Obtain or renew the public Allmon3 certificate",
         "Render the public Allmon3 TLS site",
         "Disable the unrestricted default Apache site",
@@ -125,6 +143,9 @@ def test_public_allmon3_tasks_use_certbot_and_managed_apache_site():
     )
     assert task_names.index("Render the public Allmon3 TLS site") < task_names.index(
         "Enable required public Allmon3 Apache modules"
+    )
+    assert task_names.index("Assert the public AllScan read-only gate") < task_names.index(
+        "Render the public Allmon3 TLS site"
     )
     argv = certificate["ansible.builtin.command"]["argv"]
     assert argv[:3] == ["certbot", "certonly", "--webroot"]
