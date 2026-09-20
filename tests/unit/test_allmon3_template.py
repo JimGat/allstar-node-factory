@@ -164,6 +164,17 @@ def test_allmon3_role_has_mandatory_validation_and_no_public_backend_listeners()
     assert "::1" in expression
 
 
+def test_allmon3_handler_does_not_run_in_check_mode():
+    handlers = load_yaml(ROLE_DIR / "handlers" / "main.yml")
+    reload_handler = next(
+        handler for handler in handlers if handler.get("name") == "Reload allmon3"
+    )
+
+    condition = str(reload_handler["when"])
+    assert "allmon3_enabled" in condition
+    assert "not ansible_check_mode" in condition
+
+
 def test_allmon3_handler_restarts_only_when_enabled():
     handlers = load_yaml(ROLE_DIR / "handlers" / "main.yml")
     reload_handler = next(
@@ -173,7 +184,10 @@ def test_allmon3_handler_restarts_only_when_enabled():
         "name": "allmon3",
         "state": "restarted",
     }
-    assert reload_handler["when"] == "allmon3_enabled | bool"
+    assert reload_handler["when"] == [
+        "allmon3_enabled | bool",
+        "not ansible_check_mode",
+    ]
 
 
 def test_disabled_role_never_references_undefined_digest_state():
