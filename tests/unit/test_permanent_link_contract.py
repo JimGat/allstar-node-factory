@@ -108,6 +108,17 @@ def test_role_probes_lstats_read_only_and_counts_only_the_exact_peer() -> None:
     assert "length == 1" in expression
 
 
+def test_external_owner_reads_the_native_custom_rpt_fragment() -> None:
+    tasks = load_yaml(TASKS_PATH)
+    read = task_by_name(
+        tasks, "Read the managed Asterisk node fragment for external ownership"
+    )
+
+    assert read["ansible.builtin.slurp"]["src"] == (
+        "/etc/asterisk/custom/rpt/node-factory.conf"
+    )
+
+
 def test_external_owner_asserts_the_managed_fragment_has_no_startup_macro() -> None:
     tasks = load_yaml(TASKS_PATH)
     check = task_by_name(tasks, "Assert external ownership has no local startup macro")

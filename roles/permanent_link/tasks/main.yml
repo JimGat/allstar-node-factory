@@ -19,7 +19,7 @@
 
 - name: Read the managed Asterisk node fragment for external ownership
   ansible.builtin.slurp:
-    src: /etc/asterisk/node-factory/rpt-node-factory.conf
+    src: /etc/asterisk/custom/rpt/node-factory.conf
   become: true
   register: permanent_link_managed_fragment
   when:
