@@ -302,12 +302,12 @@
       register: allscan_database
       become: true
 
-    - name: Tighten the persistent AllScan database permissions after creation
+    - name: Set private writable permissions on the persistent AllScan database
       ansible.builtin.file:
         path: /etc/allscan/allscan.db
         owner: root
         group: "{{ allscan_web_group }}"
-        mode: "0640"
+        mode: "0660"
       when: allscan_database.stat.exists
       become: true
 

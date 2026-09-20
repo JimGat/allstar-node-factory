@@ -106,6 +106,7 @@ def test_public_allmon3_tasks_use_certbot_and_managed_apache_site():
     for name in (
         "Validate public Allmon3 TLS configuration",
         "Install public Allmon3 TLS dependencies",
+        "Install Apache reload hook for certificate renewal",
         "Obtain or renew the public Allmon3 certificate",
         "Render the public Allmon3 TLS site",
         "Disable the unrestricted default Apache site",
@@ -129,6 +130,16 @@ def test_public_allmon3_tasks_use_certbot_and_managed_apache_site():
     assert argv[:3] == ["certbot", "certonly", "--webroot"]
     assert "{{ allmon3_public_hostname }}" in argv
     assert "{{ allmon3_acme_email }}" in argv
+
+    renewal_hook = next(
+        task
+        for task in tasks
+        if task.get("name") == "Install Apache reload hook for certificate renewal"
+    )
+    assert renewal_hook["ansible.builtin.copy"]["dest"] == (
+        "/etc/letsencrypt/renewal-hooks/deploy/reload-apache"
+    )
+    assert renewal_hook["ansible.builtin.copy"]["mode"] == "0755"
 
     frontend = next(
         task

@@ -101,6 +101,25 @@ def test_allscan_preserves_database_and_blocks_sensitive_http_paths() -> None:
     assert "Require all denied" in policy
 
 
+def test_allscan_database_remains_private_but_writable_by_apache() -> None:
+    tasks = load_yaml(TASKS_PATH)
+    directory = task_by_name(tasks, "Create the persistent AllScan configuration directory")
+    database = task_by_name(
+        tasks,
+        "Set private writable permissions on the persistent AllScan database",
+    )
+
+    assert directory["ansible.builtin.file"]["owner"] == "root"
+    assert directory["ansible.builtin.file"]["group"] == "{{ allscan_web_group }}"
+    assert directory["ansible.builtin.file"]["mode"] == "0770"
+    assert database["ansible.builtin.file"] == {
+        "path": "/etc/allscan/allscan.db",
+        "owner": "root",
+        "group": "{{ allscan_web_group }}",
+        "mode": "0660",
+    }
+
+
 def test_allscan_health_has_only_documented_states() -> None:
     tasks = load_yaml(TASKS_PATH)
     health = task_by_name(tasks, "Record the local AllScan health result")
