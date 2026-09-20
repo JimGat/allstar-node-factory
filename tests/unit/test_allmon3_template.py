@@ -83,6 +83,8 @@ def test_public_allmon3_vhost_enforces_tls_and_path_boundaries():
     assert "<VirtualHost *:80>" in rendered
     assert "<VirtualHost *:443>" in rendered
     assert "/.well-known/acme-challenge/" in rendered
+    assert "https://allmon-1998.example.test/$1" in rendered
+    assert "$0" not in rendered
     assert "SSLEngine on" in rendered
     assert "options-ssl-apache.conf" not in rendered
     assert "SSLProtocol all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1" in rendered
@@ -127,6 +129,14 @@ def test_public_allmon3_tasks_use_certbot_and_managed_apache_site():
     assert argv[:3] == ["certbot", "certonly", "--webroot"]
     assert "{{ allmon3_public_hostname }}" in argv
     assert "{{ allmon3_acme_email }}" in argv
+
+    frontend = next(
+        task
+        for task in tasks
+        if task.get("name") == "Query the local authenticated Allmon3 frontend"
+    )
+    assert "https://" in frontend["ansible.builtin.uri"]["url"]
+    assert "allmon3_public_hostname" in frontend["ansible.builtin.uri"]["url"]
 
 
 def test_allmon3_role_protects_secrets_and_reconciles_user_by_digest():
@@ -213,10 +223,11 @@ def test_allmon3_role_has_mandatory_validation_and_no_public_backend_listeners()
     assert configtest["when"] == "allmon3_enabled | bool"
 
     uris = [task for task in tasks if "ansible.builtin.uri" in task]
-    assert {task["ansible.builtin.uri"]["url"] for task in uris} == {
-        "http://127.0.0.1:16080/node/listall",
-        "http://127.0.0.1/allmon3/",
-    }
+    uri_urls = {task["ansible.builtin.uri"]["url"] for task in uris}
+    assert "http://127.0.0.1:16080/node/listall" in uri_urls
+    frontend_url = next(url for url in uri_urls if url.endswith("/allmon3/"))
+    assert "https://" in frontend_url
+    assert "allmon3_public_hostname" in frontend_url
     assert all(task["when"] == "allmon3_enabled | bool" for task in uris)
 
     listener_probe = next(

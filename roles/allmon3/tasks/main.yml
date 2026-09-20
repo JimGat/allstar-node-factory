@@ -378,7 +378,12 @@
 
 - name: Query the local authenticated Allmon3 frontend
   ansible.builtin.uri:
-    url: http://127.0.0.1/allmon3/
+    url: >-
+      {{
+        ('https://' ~ allmon3_public_hostname)
+        if (web_public_enabled | default(false) | bool)
+        else 'http://127.0.0.1'
+      }}/allmon3/
     method: GET
     follow_redirects: none
     status_code:

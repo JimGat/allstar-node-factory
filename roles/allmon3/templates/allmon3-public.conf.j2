@@ -8,7 +8,7 @@
         Require all granted
     </Directory>
 
-    RedirectMatch 301 ^/(?!\.well-known/acme-challenge/) https://{{ allmon3_public_hostname }}$0
+    RedirectMatch 301 ^/(?!\.well-known/acme-challenge/)(.*)$ https://{{ allmon3_public_hostname }}/$1
 </VirtualHost>
 
 <VirtualHost *:443>
