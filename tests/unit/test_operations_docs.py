@@ -68,6 +68,26 @@ def test_cutover_rollback_names_every_identity_bearing_service() -> None:
     assert "do not delete" in text.lower()
 
 
+def test_asl_web_ui_configuration_ownership_policy_is_documented() -> None:
+    profile = (ROOT / "docs/profiles/vultr-radioless-hub.md").read_text(encoding="utf-8")
+    cutover = (ROOT / "docs/operations/vultr-cutover.md").read_text(encoding="utf-8")
+    combined = profile + "\n" + cutover
+
+    for required in (
+        "asl-web-ui",
+        "/asl-web-ui/",
+        "/etc/asterisk/custom/",
+        "/var/lib/asl-web-ui/snapshots",
+        "/var/lib/asl-web-ui/audit.jsonl",
+        "private inventory",
+        "factory check/apply",
+        "https://allstarlink.github.io/web-ui/",
+    ):
+        assert required in combined
+    assert "Web UI is not a second source of truth" in combined
+    assert "Review and save" in combined
+
+
 def test_inventory_prompt_is_read_only_and_evidence_bounded() -> None:
     text = PROMPT.read_text(encoding="utf-8")
 

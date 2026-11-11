@@ -30,7 +30,9 @@ Expected: no secret values, unexpected deletions, or preflight failures. Identit
 
 Apply the staged configuration by removing only `--check --diff` from that exact command. Expected: configuration, protected web tools, firewall, and backup exist while Asterisk registration, EchoLink login, and Broadcastify transmission remain inactive.
 
-Initialize AllScan only through the protected management path. Create the first Superuser and set Public Permission to None. Expected: the database exists and AllScan validation changes from `INIT_REQUIRED` to `PASS`.
+Initialize AllScan only through the protected management path. Create the first Superuser. Public Permission may be `None`, or `Read Only` only when `allscan_public_read_only_enabled: true` is explicitly declared and the deployment gate confirms at least one user plus effective permission `Read Only`. Expected: the database exists and AllScan validation changes from `INIT_REQUIRED` to `PASS`.
+
+If `asl-web-ui` is enabled, open `https://<node>/asl-web-ui/` over trusted HTTPS and verify the intended Linux operator account can log in. Review the node pages and raw-file editor without saving. The Web UI is not a second source of truth: use **Review and save** to inspect proposed changes, promote accepted durable values into private inventory and factory templates, and run factory check/apply after every Web UI, `asl-menu`, or manual edit. Verify `/var/lib/asl-web-ui/snapshots` and `/var/lib/asl-web-ui/audit.jsonl` exist after an exercised edit. Do not use the Web UI to restart Asterisk while `production_services_enabled: false`.
 
 ## Validate staging
 
