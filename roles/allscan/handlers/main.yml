@@ -1,0 +1,16 @@
+---
+- name: Validate Apache before reload
+  ansible.builtin.command:
+    argv:
+      - apache2ctl
+      - configtest
+  changed_when: false
+  become: true
+  listen: Reload Apache
+
+- name: Reload Apache
+  ansible.builtin.service:
+    name: apache2
+    state: reloaded
+  become: true
+  listen: Reload Apache

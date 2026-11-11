@@ -1,0 +1,7 @@
+---
+- name: Restart Broadcastify
+  ansible.builtin.service:
+    name: asl-broadcastify@{{ asl_node_number }}
+    state: restarted
+  become: true
+  when: broadcastify_enabled | bool and production_services_enabled | bool

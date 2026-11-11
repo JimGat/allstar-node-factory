@@ -1,0 +1,9 @@
+<Directory "{{ allscan_web_root }}">
+    <FilesMatch "\.(?:ini|db|bak)$">
+        Require all denied
+    </FilesMatch>
+</Directory>
+
+<Directory "{{ allscan_web_root }}/_tools">
+    Require all denied
+</Directory>

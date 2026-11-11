@@ -1,0 +1,7 @@
+---
+allscan_enabled: false
+allscan_public_read_only_enabled: false
+allscan_commit: 0309f2ff8fc5d2baf1c1df1afc13acb59781cd97
+allscan_archive_sha256: bad4e2992ba8778e75e6c8cf4df3d1f2f80b23a6511dc7a73edefa8f220c7840
+allscan_web_root: /var/www/html/allscan
+allscan_web_group: www-data

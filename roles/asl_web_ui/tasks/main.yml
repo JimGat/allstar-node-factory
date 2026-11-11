@@ -1,0 +1,270 @@
+---
+- name: Validate ASL Web UI deployment settings
+  ansible.builtin.assert:
+    that:
+      - asl_web_ui_enabled is boolean
+      - not (asl_web_ui_allow_insecure_http | bool)
+      - web_public_enabled | default(false) | bool
+      - web_tls_enabled | default(false) | bool
+      - allmon3_enabled | default(false) | bool
+      - management_cidrs is sequence
+      - management_cidrs | length > 0
+      - asl_web_ui_users is sequence
+      - asl_web_ui_users is not string
+      - asl_web_ui_users | length > 0
+      - asl_web_ui_users | select('match', '^[a-z_][a-z0-9_-]*[$]?$') | list | length == asl_web_ui_users | length
+    fail_msg: >-
+      ASL Web UI requires trusted HTTPS, management CIDRs, insecure HTTP disabled,
+      and at least one explicitly declared Linux username.
+  when: asl_web_ui_enabled | bool
+
+- name: Inspect installed packages for ASL Web UI reconciliation
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Keep Asterisk stopped and disabled before ASL Web UI installation
+  ansible.builtin.service:
+    name: asterisk
+    state: stopped
+    enabled: false
+  become: true
+  when:
+    - asl_web_ui_enabled | bool
+    - not (production_services_enabled | bool)
+
+- name: Install ASL Web UI without starting services during staging
+  ansible.builtin.apt:
+    name: asl-web-ui
+    state: present
+    policy_rc_d: 101
+  become: true
+  when:
+    - asl_web_ui_enabled | bool
+    - not (production_services_enabled | bool)
+
+- name: Install ASL Web UI in production
+  ansible.builtin.apt:
+    name: asl-web-ui
+    state: present
+  become: true
+  when:
+    - asl_web_ui_enabled | bool
+    - production_services_enabled | bool
+
+- name: Keep Asterisk stopped and disabled after ASL Web UI installation
+  ansible.builtin.service:
+    name: asterisk
+    state: stopped
+    enabled: false
+  become: true
+  when:
+    - asl_web_ui_enabled | bool
+    - not (production_services_enabled | bool)
+
+- name: End the ASL Web UI role when check mode cannot inspect an absent package
+  ansible.builtin.meta: end_role
+  when:
+    - ansible_check_mode
+    - "'asl-web-ui' not in ansible_facts.packages"
+
+- name: Verify declared ASL Web UI operators already exist
+  ansible.builtin.command:
+    argv:
+      - getent
+      - passwd
+      - "{{ item }}"
+  loop: "{{ asl_web_ui_users }}"
+  changed_when: false
+  check_mode: false
+  when: asl_web_ui_enabled | bool
+
+- name: Add declared operators to the ASL Web UI group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: asl-web-ui
+    append: true
+  loop: "{{ asl_web_ui_users }}"
+  become: true
+  when: asl_web_ui_enabled | bool
+
+- name: Read current ASL Web UI group membership
+  ansible.builtin.command:
+    argv:
+      - getent
+      - group
+      - asl-web-ui
+  register: asl_web_ui_group_record
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: "'asl-web-ui' in ansible_facts.packages"
+
+- name: Determine stale ASL Web UI operators
+  ansible.builtin.set_fact:
+    asl_web_ui_stale_users: >-
+      {{
+        (asl_web_ui_group_record.stdout.split(':')[3].split(',')
+          | reject('equalto', '') | list)
+        | difference(asl_web_ui_users if (asl_web_ui_enabled | bool) else [])
+      }}
+  when:
+    - "'asl-web-ui' in ansible_facts.packages"
+    - asl_web_ui_group_record.rc == 0
+
+- name: Revoke stale ASL Web UI operators
+  ansible.builtin.command:
+    argv:
+      - gpasswd
+      - --delete
+      - "{{ item }}"
+      - asl-web-ui
+  loop: "{{ asl_web_ui_stale_users | default([]) }}"
+  changed_when: true
+  become: true
+
+- name: Create ASL Web UI drop-in directory
+  ansible.builtin.file:
+    path: /etc/asl-web-ui/conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: asl_web_ui_enabled | bool
+
+- name: Render factory-owned ASL Web UI settings
+  ansible.builtin.template:
+    src: 99-node-factory.ini.j2
+    dest: /etc/asl-web-ui/conf.d/99-node-factory.ini
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: asl_web_ui_enabled | bool
+  notify: Restart asl-web-ui
+
+- name: Render global ASL Web UI management-source restriction
+  ansible.builtin.template:
+    src: asl-web-ui-node-factory-security.conf.j2
+    dest: /etc/apache2/conf-available/asl-web-ui-node-factory-security.conf
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: asl_web_ui_enabled | bool
+  notify: Reload apache for asl-web-ui
+
+- name: Enable packaged and factory ASL Web UI Apache configurations
+  ansible.builtin.command:
+    argv:
+      - a2enconf
+      - "{{ item }}"
+  loop:
+    - asl-web-ui
+    - asl-web-ui-node-factory-security
+  register: asl_web_ui_apache_conf
+  changed_when: "'Enabling conf' in asl_web_ui_apache_conf.stdout"
+  become: true
+  when: asl_web_ui_enabled | bool
+  notify: Reload apache for asl-web-ui
+
+- name: Disable ASL Web UI Apache configurations when the feature is disabled
+  ansible.builtin.command:
+    argv:
+      - a2disconf
+      - "{{ item }}"
+  loop:
+    - asl-web-ui
+    - asl-web-ui-node-factory-security
+  register: asl_web_ui_apache_disabled
+  changed_when: "'Disabling conf' in asl_web_ui_apache_disabled.stdout"
+  become: true
+  when:
+    - not (asl_web_ui_enabled | bool)
+    - "'asl-web-ui' in ansible_facts.packages"
+  notify: Reload apache for asl-web-ui
+
+- name: Validate Apache after enabling ASL Web UI
+  ansible.builtin.command:
+    argv:
+      - apache2ctl
+      - configtest
+  changed_when: false
+  check_mode: false
+  become: true
+  when: "'asl-web-ui' in ansible_facts.packages or (asl_web_ui_enabled | bool)"
+
+- name: Enable ASL Web UI socket units
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  loop:
+    - asl-web-ui.socket
+    - asl-web-ui-auth.socket
+    - asl-web-ui-priv.socket
+  become: true
+  when: asl_web_ui_enabled | bool
+
+- name: Stop and disable ASL Web UI sockets when the feature is disabled
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    daemon_reload: true
+  loop:
+    - asl-web-ui.socket
+    - asl-web-ui-auth.socket
+    - asl-web-ui-priv.socket
+  become: true
+  when:
+    - not (asl_web_ui_enabled | bool)
+    - "'asl-web-ui' in ansible_facts.packages"
+
+- name: Apply pending ASL Web UI changes
+  ansible.builtin.meta: flush_handlers
+  when: "'asl-web-ui' in ansible_facts.packages or (asl_web_ui_enabled | bool)"
+
+- name: Query ASL Web UI through the managed HTTPS virtual host
+  ansible.builtin.uri:
+    url: "https://127.0.0.1/asl-web-ui/"
+    headers:
+      Host: "{{ allmon3_public_hostname }}"
+    validate_certs: false
+    status_code: 200
+    return_content: true
+  register: asl_web_ui_frontend
+  changed_when: false
+  check_mode: false
+  when: asl_web_ui_enabled | bool
+
+- name: Assert the ASL Web UI frontend is present
+  ansible.builtin.assert:
+    that:
+      - "'ASL Web UI' in asl_web_ui_frontend.content"
+    fail_msg: ASL Web UI did not render through the managed HTTPS virtual host.
+  when: asl_web_ui_enabled | bool
+
+- name: Read Asterisk state after staging ASL Web UI
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - asterisk
+  register: asl_web_ui_asterisk_state
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when:
+    - asl_web_ui_enabled | bool
+    - not (production_services_enabled | bool)
+
+- name: Assert Asterisk remains inactive during ASL Web UI staging
+  ansible.builtin.assert:
+    that:
+      - asl_web_ui_asterisk_state.stdout == 'inactive'
+    fail_msg: Asterisk must remain inactive while production_services_enabled is false.
+  when:
+    - asl_web_ui_enabled | bool
+    - not (production_services_enabled | bool)

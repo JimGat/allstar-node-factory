@@ -1,0 +1,124 @@
+---
+- name: Validate firewall management access
+  ansible.builtin.assert:
+    that:
+      - management_cidrs is defined
+      - management_cidrs is sequence
+      - management_cidrs is not string
+      - management_cidrs | length > 0
+    fail_msg: management_cidrs must be a non-empty list before UFW can be enabled
+
+- name: Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+- name: Allow SSH from management networks
+  community.general.ufw:
+    rule: allow
+    to_port: "22"
+    proto: tcp
+    from_ip: "{{ item }}"
+  loop: "{{ management_cidrs }}"
+
+- name: Remove unrestricted IPv4 SSH access
+  community.general.ufw:
+    delete: true
+    rule: allow
+    to_port: "22"
+    proto: tcp
+    from_ip: 0.0.0.0/0
+
+- name: Remove unrestricted IPv6 SSH access
+  community.general.ufw:
+    delete: true
+    rule: allow
+    to_port: "22"
+    proto: tcp
+    from_ip: ::/0
+
+- name: Deny incoming traffic by default
+  community.general.ufw:
+    default: deny
+    direction: incoming
+
+- name: Allow outgoing traffic by default
+  community.general.ufw:
+    default: allow
+    direction: outgoing
+
+- name: Allow public AllStarLink IAX traffic
+  community.general.ufw:
+    rule: allow
+    to_port: "{{ asl_iax_port }}"
+    proto: udp
+    from_ip: 0.0.0.0/0
+
+- name: Allow public EchoLink audio traffic
+  community.general.ufw:
+    rule: allow
+    to_port: "{{ item }}"
+    proto: udp
+    from_ip: 0.0.0.0/0
+  loop:
+    - "5198"
+    - "5199"
+  when: echolink_enabled | bool
+
+- name: Remove EchoLink rules when disabled
+  community.general.ufw:
+    delete: true
+    rule: allow
+    to_port: "{{ item }}"
+    proto: udp
+    from_ip: 0.0.0.0/0
+  loop:
+    - "5198"
+    - "5199"
+  when: not (echolink_enabled | bool)
+
+- name: Allow public HTTP traffic
+  community.general.ufw:
+    rule: allow
+    to_port: "80"
+    proto: tcp
+    from_ip: 0.0.0.0/0
+  when: web_public_enabled | bool
+
+- name: Remove HTTP rule when public web is disabled
+  community.general.ufw:
+    delete: true
+    rule: allow
+    to_port: "80"
+    proto: tcp
+    from_ip: 0.0.0.0/0
+  when: not (web_public_enabled | bool)
+
+- name: Allow public HTTPS traffic
+  community.general.ufw:
+    rule: allow
+    to_port: "443"
+    proto: tcp
+    from_ip: 0.0.0.0/0
+  when:
+    - web_public_enabled | bool
+    - web_tls_enabled | bool
+
+- name: Remove HTTPS rule when public TLS is disabled
+  community.general.ufw:
+    delete: true
+    rule: allow
+    to_port: "443"
+    proto: tcp
+    from_ip: 0.0.0.0/0
+  when: not ((web_public_enabled | bool) and (web_tls_enabled | bool))
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+
+- name: Read verbose UFW status
+  ansible.builtin.command:
+    cmd: ufw status verbose
+  changed_when: false
+  register: firewall_ufw_status

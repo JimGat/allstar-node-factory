@@ -1,0 +1,12 @@
+---
+- name: Restart asl-web-ui
+  ansible.builtin.service:
+    name: asl-web-ui
+    state: restarted
+  become: true
+
+- name: Reload apache for asl-web-ui
+  ansible.builtin.service:
+    name: apache2
+    state: reloaded
+  become: true

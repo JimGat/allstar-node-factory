@@ -1,0 +1,12 @@
+# FICTIONAL EXAMPLE ONLY — never use these values for production.
+---
+production_services_enabled: false
+management_cidrs:
+  - 192.0.2.10/32
+echolink_enabled: true
+broadcastify_enabled: true
+allmon3_enabled: true
+allscan_enabled: true
+asl_web_ui_enabled: false
+asl_web_ui_users: []
+permanent_link_enabled: true

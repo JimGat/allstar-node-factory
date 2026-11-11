@@ -1,0 +1,189 @@
+---
+- name: Validate Broadcastify configuration
+  ansible.builtin.assert:
+    that:
+      - asl_node_number is string
+      - asl_node_number | trim | length > 0
+      - broadcastify_host is string
+      - broadcastify_host | trim | length > 0
+      - broadcastify_port is string
+      - broadcastify_port | trim | length > 0
+      - broadcastify_mount is string
+      - broadcastify_mount | trim | length > 0
+      - broadcastify_user is string
+      - broadcastify_user | trim | length > 0
+      - vault_broadcastify_password is defined
+      - vault_broadcastify_password is string
+      - vault_broadcastify_password | trim | length > 0
+      - broadcastify_input_samplerate is string
+      - broadcastify_input_samplerate | trim | length > 0
+      - broadcastify_input_channels is string
+      - broadcastify_input_channels | trim | length > 0
+      - broadcastify_output_bitrate is string
+      - broadcastify_output_bitrate | trim | length > 0
+      - production_services_enabled is defined
+      - production_services_enabled is boolean
+    fail_msg: Broadcastify requires a complete stream configuration and vaulted password.
+  when: broadcastify_enabled | bool
+  no_log: true
+
+- name: Reject unsafe Broadcastify shell values
+  ansible.builtin.assert:
+    that:
+      - (item | string) is not regex('[\r\n\x00]')
+    fail_msg: Broadcastify shell configuration values must not contain newline or NUL characters.
+  loop:
+    - "{{ asl_node_number }}"
+    - "{{ broadcastify_host }}"
+    - "{{ broadcastify_port }}"
+    - "{{ broadcastify_mount }}"
+    - "{{ broadcastify_user }}"
+    - "{{ vault_broadcastify_password }}"
+    - "{{ broadcastify_input_samplerate }}"
+    - "{{ broadcastify_input_channels }}"
+    - "{{ broadcastify_output_bitrate }}"
+  when: broadcastify_enabled | bool
+  no_log: true
+
+- name: Read the installed ASL3 version
+  ansible.builtin.command:
+    argv:
+      - dpkg-query
+      - -W
+      - "-f=${Version}"
+      - asl3
+  register: broadcastify_asl3_version
+  changed_when: false
+  when: broadcastify_enabled | bool
+
+- name: Compare the installed ASL3 version with the supported minimum
+  ansible.builtin.command:
+    argv:
+      - dpkg
+      - --compare-versions
+      - "{{ broadcastify_asl3_version.stdout }}"
+      - ge
+      - "{{ broadcastify_minimum_asl3_version }}"
+  register: broadcastify_asl3_version_gate
+  changed_when: false
+  failed_when: false
+  when: broadcastify_enabled | bool
+
+- name: Enforce the supported ASL3 version
+  ansible.builtin.assert:
+    that:
+      - broadcastify_asl3_version_gate.rc == 0
+    fail_msg: ASL3 3.18.2-2 or later is required for modern Broadcastify streaming.
+  when: broadcastify_enabled | bool
+
+- name: Probe for rpt_audio_writer
+  ansible.builtin.stat:
+    path: /usr/libexec/asl3/rpt_audio_writer
+  register: broadcastify_audio_writer
+  changed_when: false
+  when: broadcastify_enabled | bool
+
+- name: Require rpt_audio_writer
+  ansible.builtin.assert:
+    that:
+      - broadcastify_audio_writer.stat.exists
+    fail_msg: /usr/libexec/asl3/rpt_audio_writer is required for Broadcastify streaming.
+  when: broadcastify_enabled | bool
+
+- name: Install ffmpeg
+  ansible.builtin.apt:
+    name: ffmpeg
+    state: present
+  become: true
+  when: broadcastify_enabled | bool
+
+- name: Create the Broadcastify configuration directory
+  ansible.builtin.file:
+    path: /etc/asterisk/broadcastify
+    state: directory
+    owner: root
+    group: asterisk
+    mode: "0750"
+  become: true
+  when: broadcastify_enabled | bool
+
+- name: Render Broadcastify stream configuration
+  ansible.builtin.template:
+    src: broadcastify.conf.j2
+    dest: /etc/asterisk/broadcastify/{{ asl_node_number }}.conf
+    owner: root
+    group: asterisk
+    mode: "0640"
+  become: true
+  when: broadcastify_enabled | bool
+  no_log: true
+  diff: false
+  notify: Restart Broadcastify
+
+- name: Keep the Broadcastify service stopped outside production
+  ansible.builtin.service:
+    name: asl-broadcastify@{{ asl_node_number }}
+    state: stopped
+    enabled: false
+  become: true
+  when: not (broadcastify_enabled | bool and production_services_enabled | bool)
+
+- name: Apply pending Asterisk changes before Broadcastify activation
+  ansible.builtin.meta: flush_handlers
+  when: broadcastify_enabled | bool and production_services_enabled | bool
+
+- name: Activate the Broadcastify service in production
+  ansible.builtin.service:
+    name: asl-broadcastify@{{ asl_node_number }}
+    state: started
+    enabled: true
+  become: true
+  when: broadcastify_enabled | bool and production_services_enabled | bool
+
+- name: Validate the Broadcastify systemd unit
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - asl-broadcastify@{{ asl_node_number }}
+  register: broadcastify_unit_probe
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: broadcastify_enabled | bool and production_services_enabled | bool
+
+- name: Validate the Broadcastify FIFO
+  ansible.builtin.stat:
+    path: /var/lib/asterisk/{{ asl_node_number }}.fifo
+  register: broadcastify_fifo_probe
+  changed_when: false
+  no_log: true
+  when: broadcastify_enabled | bool and production_services_enabled | bool
+
+- name: Read recent Broadcastify service logs
+  ansible.builtin.command:
+    argv:
+      - journalctl
+      - --unit=asl-broadcastify@{{ asl_node_number }}
+      - "--since=-5 minutes"
+      - --no-pager
+  register: broadcastify_log_probe
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: broadcastify_enabled | bool and production_services_enabled | bool
+
+- name: Assert Broadcastify service health
+  ansible.builtin.assert:
+    that:
+      - broadcastify_unit_probe.rc == 0
+      - broadcastify_unit_probe.stdout | trim == 'active'
+      - broadcastify_fifo_probe.stat.exists
+      - broadcastify_fifo_probe.stat.isfifo
+      - broadcastify_log_probe.rc == 0
+      - >-
+        broadcastify_log_probe.stdout | default('')
+        is not regex('(?i)(?:error|failed|unable)')
+    fail_msg: Broadcastify service, FIFO, or recent journal validation failed.
+  no_log: true
+  when: broadcastify_enabled | bool and production_services_enabled | bool

@@ -1,0 +1,14 @@
+---
+validation_report_root: /var/lib/allstar-node-factory/reports
+validation_fetch_dir: ""
+validation_allowed_statuses:
+  - FAIL
+  - INIT_REQUIRED
+  - NOT_APPLICABLE
+  - PASS
+validation_supported_architectures:
+  - x86_64
+  - amd64
+validation_backup_root: "{{ backup_root | default('/var/backups/allstar-node-factory') }}"
+validation_allmon3_url: http://127.0.0.1:16080/node/listall
+validation_allscan_url: http://127.0.0.1/allscan/

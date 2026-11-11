@@ -1,0 +1,16 @@
+# FICTIONAL EXAMPLE ONLY — never use these values for production.
+---
+asl_node_number: "1998"
+asl_callsign: N0CALL
+asl_iax_port: 4569
+asl_rxchannel: Local/pseudo
+echolink_call: N0CALL-L
+echolink_node: "000001"
+permanent_link_peer_node: "1999"
+permanent_link_initiator: external
+vault_asl_node_password: fixture-only-123
+vault_echolink_password: fixture-only-123
+vault_broadcastify_password: fixture-only-123
+vault_ami_secret: fixture-only-123
+vault_allmon3_password: fixture-only-123
+vault_allscan_password: fixture-only-123

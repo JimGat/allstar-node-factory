@@ -1,0 +1,19 @@
+title = "allstar-node-factory secret policy"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Reviewed design sources and deliberate scanner fixtures"
+paths = [
+  '''^docs/superpowers/(?:plans|specs)/''',
+  '''^tests/unit/test_check_no_secrets\.py$''',
+]
+
+[[allowlists]]
+description = "Ansible Vault header and ciphertext lines"
+regexTarget = "line"
+regexes = [
+  '''^\$ANSIBLE_VAULT;1\.2;AES256;production$''',
+  '''^[0-9a-f]{32,}$''',
+]
