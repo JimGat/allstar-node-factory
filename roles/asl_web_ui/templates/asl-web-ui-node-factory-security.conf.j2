@@ -1,0 +1,9 @@
+# Managed by allstar-node-factory. Applies to the package alias on every vhost.
+<LocationMatch "^/asl-web-ui(?:/|$)">
+    <RequireAny>
+        Require local
+{% for cidr in management_cidrs %}
+        Require ip {{ cidr }}
+{% endfor %}
+    </RequireAny>
+</LocationMatch>

@@ -5,7 +5,7 @@
 - Debian 13 x64
 - 2 vCPU, 2 GB RAM, 25-40 GB SSD
 - ASL3 radioless `Local/pseudo` hub
-- Optional EchoLink, Broadcastify, Allmon3, and commit-pinned AllScan
+- Optional EchoLink, Broadcastify, Allmon3, commit-pinned AllScan, and ASL Web UI
 - One permanent AllStarLink connection to the separate DVSwitch node
 
 The provider firewall and UFW must agree: management-restricted SSH, public configured IAX UDP, EchoLink UDP only when enabled, and web access only through the approved protected boundary. AMI and Allmon3 backend ports remain loopback-only.
@@ -34,7 +34,9 @@ Use this reconciliation workflow:
 4. Do not use the Web UI alone to rename/remove a managed node, switch registration methods, change the IAX port, replace the managed certificate/vhost, or alter a production identity. Those changes require inventory, template, firewall, validation, and rollback updates as one reviewed change.
 5. After any `asl-menu`, Web UI, or manual edit, run factory check/apply. Expected: declared values remain, native include hooks still load, and unmanaged duplicate node stanzas are absent.
 
-Before enabling `asl-web-ui` on a production profile, install it with identities disabled, add only the intended Linux account to the `asl-web-ui` group, expose `/asl-web-ui/` through the managed trusted-HTTPS vhost, and test node discovery plus a harmless reviewed edit/reconciliation cycle. The factory remains responsible for Certbot and Apache policy; do not use the Web UI HTTPS page to replace the managed certificate configuration.
+Before enabling `asl-web-ui` on a production profile, install it with identities disabled, add only the intended Linux account to the `asl-web-ui` group, expose `/asl-web-ui/` through the managed trusted-HTTPS vhost, and test node discovery plus a harmless reviewed edit/reconciliation cycle. During staging the package is installed under service-start suppression, with Asterisk stopped and disabled before and after installation. The factory requires `allow_insecure_http = no`, keeps `apache_vhosts = external`, and applies the `management_cidrs` restriction globally so the package alias cannot escape through a default or alternate vhost. Management sources must be exact IPv4 `/32` or IPv6 `/128` host routes so each operator/source SSH context is validated rather than sampled from a broader subnet. Declared group membership is reconciled: removed operators lose the `asl-web-ui` group and disabling the feature disables its Apache configurations and sockets. PAM login is an additional control, not a substitute for the source boundary. The factory remains responsible for Certbot and Apache policy; do not use the Web UI HTTPS page to replace the managed certificate configuration.
+
+ASL Web UI needs a local PAM password even when SSH uses keys. Before setting that password, verify `sshd -T` reports `authenticationmethods publickey`, `passwordauthentication no`, and `kbdinteractiveauthentication no`. The factory manages those values in `/etc/ssh/sshd_config.d/00-node-factory.conf` and validates the effective `sshd -T -C` policy for every declared Web UI operator and management source, so adding a local password does not enable SSH password login through a user/address `Match` exception. Set or change the password interactively on the node; do not store or send it in chat, shell history, inventory, or repository content.
 
 ## Deploy
 

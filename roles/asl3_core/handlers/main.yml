@@ -1,4 +1,10 @@
 ---
+- name: Reload ssh
+  ansible.builtin.service:
+    name: ssh
+    state: reloaded
+  become: true
+
 - name: Restart asterisk
   ansible.builtin.service:
     name: asterisk

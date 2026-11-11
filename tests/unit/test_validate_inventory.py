@@ -36,10 +36,33 @@ def test_feature_flags_reject_string_booleans() -> None:
     assert "allscan_enabled must be true or false" in MODULE.validate(data)
 
 
+def test_asl_web_ui_requires_declared_users() -> None:
+    data = load("valid.yml")
+    data["asl_web_ui_enabled"] = True
+    data["asl_web_ui_users"] = []
+    assert "asl_web_ui_users must be a non-empty list of usernames" in MODULE.validate(data)
+
+
+def test_asl_web_ui_rejects_invalid_operator_username() -> None:
+    data = load("valid.yml")
+    data["asl_web_ui_enabled"] = True
+    data["asl_web_ui_users"] = ["123invalid"]
+    assert "asl_web_ui_users must be a non-empty list of usernames" in MODULE.validate(data)
+
+
 def test_management_cidrs_reject_non_strings() -> None:
     data = load("valid.yml")
     data["management_cidrs"] = [1234]
     assert "management_cidrs contains invalid CIDR: 1234" in MODULE.validate(data)
+
+
+def test_management_cidrs_reject_broad_networks() -> None:
+    data = load("valid.yml")
+    data["management_cidrs"] = ["192.0.2.0/24", "2001:db8::/64"]
+    errors = MODULE.validate(data)
+
+    assert "management_cidrs must contain only IPv4 /32 or IPv6 /128 host routes: '192.0.2.0/24'" in errors
+    assert "management_cidrs must contain only IPv4 /32 or IPv6 /128 host routes: '2001:db8::/64'" in errors
 
 
 def test_allscan_password_must_be_a_bounded_string() -> None:

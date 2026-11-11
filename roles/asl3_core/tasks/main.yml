@@ -94,6 +94,91 @@
     mode: "0644"
   become: true
 
+- name: Create the OpenSSH server drop-in directory
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Require key-only SSH authentication
+  ansible.builtin.template:
+    src: 00-node-factory-ssh.conf.j2
+    dest: /etc/ssh/sshd_config.d/00-node-factory.conf
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload ssh
+
+- name: Validate the effective OpenSSH configuration syntax
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+  become: true
+  when: not ansible_check_mode
+
+- name: Apply validated OpenSSH hardening
+  ansible.builtin.meta: flush_handlers
+  when: not ansible_check_mode
+
+- name: Read the effective OpenSSH authentication policy
+  ansible.builtin.command: /usr/sbin/sshd -T
+  register: asl3_core_sshd_effective
+  changed_when: false
+  become: true
+  when: not ansible_check_mode
+
+- name: Assert OpenSSH remains key-only
+  ansible.builtin.assert:
+    that:
+      - "'authenticationmethods publickey' in asl3_core_sshd_effective.stdout_lines"
+      - "'pubkeyauthentication yes' in asl3_core_sshd_effective.stdout_lines"
+      - "'passwordauthentication no' in asl3_core_sshd_effective.stdout_lines"
+      - "'kbdinteractiveauthentication no' in asl3_core_sshd_effective.stdout_lines"
+    fail_msg: OpenSSH must require public keys before a local PAM password is enabled.
+  when: not ansible_check_mode
+
+- name: Require exact host routes for management-source SSH validation
+  ansible.builtin.assert:
+    that:
+      - >-
+        (item is match('^[0-9.]+/32$')) or
+        (item is match('^[0-9A-Fa-f:]+/128$'))
+    fail_msg: >-
+      management_cidrs must contain only IPv4 /32 or IPv6 /128 host routes so
+      every Web UI operator SSH source can be validated exactly.
+  loop: "{{ management_cidrs }}"
+  when: asl_web_ui_enabled | default(false) | bool
+
+- name: Read effective OpenSSH policy for each Web UI operator and management source
+  ansible.builtin.command: >-
+    /usr/sbin/sshd -T -C
+    user={{ item.0 }},addr={{ item.1.split('/')[0] }},host={{ asl_hostname }}
+  loop: "{{ (asl_web_ui_users | default([])) | product(management_cidrs) | list }}"
+  register: asl3_core_operator_sshd_effective
+  changed_when: false
+  become: true
+  when:
+    - not ansible_check_mode
+    - asl_web_ui_enabled | default(false) | bool
+
+- name: Assert Web UI operator SSH contexts remain key-only
+  ansible.builtin.assert:
+    that:
+      - "'authenticationmethods publickey' in item.stdout_lines"
+      - "'pubkeyauthentication yes' in item.stdout_lines"
+      - "'passwordauthentication no' in item.stdout_lines"
+      - "'kbdinteractiveauthentication no' in item.stdout_lines"
+    fail_msg: >-
+      OpenSSH must require public keys for every declared Web UI operator and
+      management source before a local PAM password is enabled.
+  loop: "{{ asl3_core_operator_sshd_effective.results | default([]) }}"
+  when:
+    - not ansible_check_mode
+    - asl_web_ui_enabled | default(false) | bool
+
 - name: Install ASL3 repository prerequisites
   ansible.builtin.apt:
     name:

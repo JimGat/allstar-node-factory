@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 from pathlib import Path
+import re
 import sys
 from typing import Any
 
@@ -27,6 +28,7 @@ FEATURE_SECRETS = {
     "allscan_enabled": ("vault_allscan_password",),
 }
 VALID_INITIATORS = {"external", "local"}
+VALID_LOCAL_USERNAME = re.compile(r"^[a-z_][a-z0-9_-]*[$]?$")
 
 
 def _missing(value: Any) -> bool:
@@ -65,15 +67,21 @@ def validate(data: dict[str, Any]) -> list[str]:
                     errors.append(f"management_cidrs contains invalid CIDR: {cidr!r}")
                     continue
                 try:
-                    ipaddress.ip_network(cidr, strict=False)
+                    network = ipaddress.ip_network(cidr, strict=False)
                 except (TypeError, ValueError):
                     errors.append(f"management_cidrs contains invalid CIDR: {cidr!r}")
+                    continue
+                if "/" not in cidr or network.prefixlen != network.max_prefixlen:
+                    errors.append(
+                        "management_cidrs must contain only IPv4 /32 or IPv6 /128 "
+                        f"host routes: {cidr!r}"
+                    )
 
     activation = data.get("production_services_enabled")
     if not isinstance(activation, bool):
         errors.append("production_services_enabled must be true or false")
 
-    feature_flags = (*FEATURE_SECRETS, "permanent_link_enabled")
+    feature_flags = (*FEATURE_SECRETS, "permanent_link_enabled", "asl_web_ui_enabled")
     for flag in feature_flags:
         if flag in data and not isinstance(data[flag], bool):
             errors.append(f"{flag} must be true or false")
@@ -88,6 +96,19 @@ def validate(data: dict[str, Any]) -> list[str]:
         password = data.get("vault_allscan_password")
         if not isinstance(password, str) or not 6 <= len(password) <= 16:
             errors.append("vault_allscan_password must be 6-16 characters")
+
+    if data.get("asl_web_ui_enabled") is True:
+        users = data.get("asl_web_ui_users")
+        if (
+            not isinstance(users, list)
+            or not users
+            or any(
+                not isinstance(user, str)
+                or VALID_LOCAL_USERNAME.fullmatch(user) is None
+                for user in users
+            )
+        ):
+            errors.append("asl_web_ui_users must be a non-empty list of usernames")
 
     if data.get("permanent_link_enabled") is True:
         peer = data.get("permanent_link_peer_node")

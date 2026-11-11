@@ -38,6 +38,9 @@
     - role: allscan
       tags:
         - web
+    - role: asl_web_ui
+      tags:
+        - web
     - role: firewall
       tags:
         - firewall

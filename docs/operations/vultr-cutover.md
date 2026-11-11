@@ -9,7 +9,7 @@ This is the operator runbook for blue/green replacement. Do not delete the old s
 - Provider backup and firewall are enabled.
 - Raw legacy evidence and snapshots are outside Git.
 - `production_services_enabled: false` is committed in private inventory.
-- The old server is still operating and unchanged.
+- The legacy VM is retained unchanged for rollback, and its intended service state is explicitly recorded. Never allow both old and new identity-bearing services to run.
 
 ## Stage
 
@@ -32,7 +32,7 @@ Apply the staged configuration by removing only `--check --diff` from that exact
 
 Initialize AllScan only through the protected management path. Create the first Superuser. Public Permission may be `None`, or `Read Only` only when `allscan_public_read_only_enabled: true` is explicitly declared and the deployment gate confirms at least one user plus effective permission `Read Only`. Expected: the database exists and AllScan validation changes from `INIT_REQUIRED` to `PASS`.
 
-If `asl-web-ui` is enabled, open `https://<node>/asl-web-ui/` over trusted HTTPS and verify the intended Linux operator account can log in. Review the node pages and raw-file editor without saving. The Web UI is not a second source of truth: use **Review and save** to inspect proposed changes, promote accepted durable values into private inventory and factory templates, and run factory check/apply after every Web UI, `asl-menu`, or manual edit. Verify `/var/lib/asl-web-ui/snapshots` and `/var/lib/asl-web-ui/audit.jsonl` exist after an exercised edit. Do not use the Web UI to restart Asterisk while `production_services_enabled: false`.
+If `asl-web-ui` is enabled, first verify `sshd -T` and each operator/source `sshd -T -C` context report `authenticationmethods publickey`, `passwordauthentication no`, and `kbdinteractiveauthentication no`. Set the declared operator's local PAM password interactively with `sudo passwd <user>`; never pass it in chat, command arguments, inventory, or repository content. Open `https://<node>/asl-web-ui/` from an approved management CIDR and verify the operator can log in. From an unapproved source, the managed hostname, direct-IP host, and unknown/default hostname must each return HTTP `403` over HTTPS; HTTP may only redirect to that denied HTTPS endpoint. Review the node pages and raw-file editor without saving. The Web UI is not a second source of truth: use **Review and save** to inspect proposed changes, promote accepted durable values into private inventory and factory templates, and run factory check/apply after every Web UI, `asl-menu`, or manual edit. Verify `/var/lib/asl-web-ui/snapshots` and `/var/lib/asl-web-ui/audit.jsonl` exist after an exercised edit. Do not use the Web UI to restart Asterisk while `production_services_enabled: false`.
 
 ## Validate staging
 

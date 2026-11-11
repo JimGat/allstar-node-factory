@@ -95,7 +95,11 @@ def test_debian13_offline_roles_are_idempotent_and_redacted() -> None:
         assert re.search(r"changed=0\s+unreachable=0\s+failed=0", second.stdout)
 
         host = testinfra.get_host(f"docker://{container}")
-        assert host.file("/etc/asterisk/node-factory").mode == 0o750
+        assert not host.file("/etc/asterisk/node-factory").exists
+        assert host.file("/etc/asterisk/custom").mode == 0o750
+        assert host.file("/etc/asterisk/custom/rpt").mode == 0o750
+        node_fragment = host.file("/etc/asterisk/custom/rpt/node-factory.conf")
+        assert node_fragment.mode == 0o640
         registration = host.file("/etc/asterisk/rpt_http_registrations.conf")
         assert registration.mode == 0o640
         assert host.file("/var/backups/allstar-node-factory").mode == 0o700

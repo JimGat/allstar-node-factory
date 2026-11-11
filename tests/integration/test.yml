@@ -13,7 +13,7 @@
     vault_asl_node_password: fixture-only-123
     vault_ami_secret: fixture-only-123
     management_cidrs:
-      - 192.0.2.0/24
+      - 192.0.2.10/32
     private_node_routes: {}
     echolink_enabled: false
     broadcastify_enabled: false

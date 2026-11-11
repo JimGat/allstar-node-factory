@@ -12,6 +12,7 @@ EXPECTED = [
     "broadcastify",
     "allmon3",
     "allscan",
+    "asl_web_ui",
     "firewall",
     "validation",
 ]

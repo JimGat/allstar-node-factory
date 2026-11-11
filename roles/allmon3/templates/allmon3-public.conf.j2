@@ -46,6 +46,17 @@
         Require all denied
     </LocationMatch>
 
+{% if asl_web_ui_enabled | default(false) %}
+    <LocationMatch "^/asl-web-ui(?:/|$)">
+        <RequireAny>
+            Require local
+{% for cidr in management_cidrs %}
+            Require ip {{ cidr }}
+{% endfor %}
+        </RequireAny>
+    </LocationMatch>
+{% endif %}
+
     ErrorLog ${APACHE_LOG_DIR}/allmon3-public-error.log
     CustomLog ${APACHE_LOG_DIR}/allmon3-public-access.log combined
 </VirtualHost>
